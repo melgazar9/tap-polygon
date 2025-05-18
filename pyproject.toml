@@ -9,7 +9,7 @@ keywords = ["ELT", "Polygon"]
 packages = [{ include = "tap_polygon" }]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.10,<3.13"
 singer-sdk = "~0.46.3"
 requests = "~2.32.3"
 fs-s3fs = { version = "~1.1.1", optional = true }

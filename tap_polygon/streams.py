@@ -4,63 +4,47 @@ from __future__ import annotations
 
 import typing as t
 from importlib import resources
+from singer_sdk import typing as th
 
-from singer_sdk import typing as th  # JSON Schema typing helpers
+from tap_polygon.client import PolygonRestStream
+import pandas as pd
 
-from tap_polygon.client import PolygonStream
+class StockTickersStream(PolygonRestStream):
+    """Fetch all stock tickers from Polygon."""
 
-# TODO: Delete this is if not using json files for schema definition
-SCHEMAS_DIR = resources.files(__package__) / "schemas"
-# TODO: - Override `UsersStream` and `GroupsStream` with your own stream definition.
-#       - Copy-paste as many times as needed to create multiple stream types.
-
-
-class UsersStream(PolygonStream):
-    """Define custom stream."""
-
-    name = "users"
-    path = "/users"
-    primary_keys: t.ClassVar[list[str]] = ["id"]
-    replication_key = None
-    # Optionally, you may also use `schema_filepath` in place of `schema`:
-    # schema_filepath = SCHEMAS_DIR / "users.json"  # noqa: ERA001
+    name = "stock_tickers"
+    replication_key = "ticker"
     schema = th.PropertiesList(
+        th.Property("cik", th.StringType),
+        th.Property("ticker", th.StringType),
         th.Property("name", th.StringType),
-        th.Property(
-            "id",
-            th.StringType,
-            description="The user's system ID",
-        ),
-        th.Property(
-            "age",
-            th.IntegerType,
-            description="The user's age in years",
-        ),
-        th.Property(
-            "email",
-            th.StringType,
-            description="The user's email address",
-        ),
-        th.Property("street", th.StringType),
-        th.Property("city", th.StringType),
-        th.Property(
-            "state",
-            th.StringType,
-            description="State name in ISO 3166-2 format",
-        ),
-        th.Property("zip", th.StringType),
+        th.Property("active", th.BooleanType),
+        th.Property("currency_symbol", th.StringType),
+        th.Property("currency_name", th.StringType),
+        th.Property("base_currency_symbol", th.StringType),
+        th.Property("composite_figi", th.StringType),
+        th.Property("base_currency_name", th.StringType),
+        th.Property("delisted_utc", th.StringType),
+        th.Property("last_updated_utc", th.StringType),
+        th.Property("locale", th.StringType),
+        th.Property("market", th.StringType),
+        th.Property("primary_exchange", th.StringType),
+        th.Property("share_class_figi", th.StringType),
+        th.Property("type", th.StringType),
+        th.Property("source_feed", th.StringType),
     ).to_dict()
 
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        tickers = []
+        for t in self.client.list_tickers(
+                active="true",
+                order="asc",
+                limit="100",
+                sort="ticker",
+        ):
+            tickers.append(t)
 
-class GroupsStream(PolygonStream):
-    """Define custom stream."""
+        df = pd.DataFrame(tickers)
 
-    name = "groups"
-    path = "/groups"
-    primary_keys: t.ClassVar[list[str]] = ["id"]
-    replication_key = "modified"
-    schema = th.PropertiesList(
-        th.Property("name", th.StringType),
-        th.Property("id", th.StringType),
-        th.Property("modified", th.DateTimeType),
-    ).to_dict()
+        for row in df.to_dict(orient="records"):
+            yield row
