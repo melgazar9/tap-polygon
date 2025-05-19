@@ -41,6 +41,8 @@ plugins:
     - daily_ticker_summary.*
     - top_market_movers.*
     - trades.*
+    - quotes.*
+    - sma.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'
@@ -77,12 +79,34 @@ plugins:
       trades:
         - params:
             timestamp_gte: "2025-05-19T12:56:00Z"
+            sort: timestamp
             order: asc
+            tickers:
+              - AAPL
+              - META
+      quotes:
+        - params:
+            timestamp_gte: "2025-05-19T12:56:00Z"
+            sort: timestamp
+            order: asc
+            tickers:
+              - AAPL
+              - META
+      sma:
+        - params:
+            timestamp_gte: "2025-01-01T00:00:00.999Z"
+            timespan: minute
+            window: 10
+            series_type: close
+            expand_underlying: true
             tickers:
               - AAPL
               - META
     metadata:
       trades:
+        replication-method: INCREMENTAL
+        replication-key: participant_timestamp
+      quotes:
         replication-method: INCREMENTAL
         replication-key: participant_timestamp
 

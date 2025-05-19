@@ -15,7 +15,9 @@ from tap_polygon.streams import (
     DailyMarketSummaryStream,
     DailyTickerSummaryStream,
     TopMarketMoversStream,
-    TradesStream,
+    TradeStream,
+    QuoteStream,
+    SmaStream,
 )
 
 
@@ -55,7 +57,9 @@ class TapPolygon(Tap):
             DailyMarketSummaryStream(self),
             DailyTickerSummaryStream(self, ticker_provider),
             TopMarketMoversStream(self),
-            TradesStream(self, ticker_provider),
+            TradeStream(self, ticker_provider),
+            QuoteStream(self, ticker_provider),
+            SmaStream(self, ticker_provider),
         ]
 
         return streams

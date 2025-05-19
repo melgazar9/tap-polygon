@@ -410,7 +410,7 @@ class TopMarketMoversStream(PolygonRestStream):
                 yield record
 
 
-class TradesStream(PolygonRestStream):
+class TradeStream(PolygonRestStream):
     """
     Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
     Each record includes price, size, exchange, trade conditions, and precise timestamp information.
@@ -431,8 +431,8 @@ class TradesStream(PolygonRestStream):
     is_sorted = False  # Issue updating the incremental state
     is_timestamp_replication_key = False  # It's technically true but set to False because the incremental key is in nanosecond epoch time.
     schema = th.PropertiesList(
-        th.Property("conditions", th.ArrayType(th.NumberType)),
-        th.Property("correction", th.StringType),
+        th.Property("conditions", th.ArrayType(th.AnyType())),
+        th.Property("correction", th.AnyType()),
         th.Property("exchange", th.NumberType),
         th.Property("id", th.StringType),
         th.Property("participant_timestamp", th.IntegerType),
@@ -474,7 +474,7 @@ class TradesStream(PolygonRestStream):
 
         return start_timestamp_iso
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+    def get_params(self, context):
         if context is None or "ticker" not in context:
             raise RuntimeError("Partition context must include a 'ticker'.")
 
@@ -489,6 +489,10 @@ class TradesStream(PolygonRestStream):
         params.pop("tickers", None)
         params["ticker"] = ticker
         params["timestamp_gte"] = self.get_starting_timestamp(context)
+        return params
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        params = self.get_params(context)
         state = self.get_context_state(context)
 
         for trade in self.client.list_trades(**params):
@@ -502,3 +506,101 @@ class TradesStream(PolygonRestStream):
                 check_sorted=self.check_sorted,
             )
             yield record
+
+
+class QuoteStream(TradeStream):
+    name = "quotes"
+
+    schema = th.PropertiesList(
+        th.Property("ask_exchange", th.IntegerType, optional=True),
+        th.Property("ask_price", th.NumberType, optional=True),
+        th.Property("ask_size", th.NumberType, optional=True),
+        th.Property("bid_exchange", th.IntegerType, optional=True),
+        th.Property("bid_price", th.NumberType, optional=True),
+        th.Property("bid_size", th.NumberType, optional=True),
+        th.Property("conditions", th.ArrayType(th.IntegerType), optional=True),
+        th.Property("indicators", th.ArrayType(th.IntegerType), optional=True),
+        th.Property("participant_timestamp", th.IntegerType),
+        th.Property("sequence_number", th.IntegerType),
+        th.Property("sip_timestamp", th.IntegerType),
+        th.Property("tape", th.IntegerType, optional=True),
+        th.Property("trf_timestamp", th.IntegerType, optional=True),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        params = self.get_params(context)
+        state = self.get_context_state(context)
+
+        for trade in self.client.list_quotes(**params):
+            record = asdict(trade)
+            check_missing_fields(self.schema, record)
+            increment_state(
+                state,
+                replication_key=self.replication_key,
+                latest_record=record,
+                is_sorted=self.is_sorted,
+                check_sorted=self.check_sorted,
+            )
+            yield record
+
+class LastQuoteStream(QuoteStream):
+    pass  # Need Advanced Subscription
+
+
+class IndicatorStream(PolygonRestStream):
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_params(self) -> t.Iterable[dict[str, t.Any]]:
+        cfg_params = self.config.get(self.name)
+        if len(cfg_params) == 1 and "params" in cfg_params[0]:
+            params = cfg_params[0].get("params")
+        else:
+            raise ValueError(f"Must supply exactly one params object in the stream {self.name}.")
+        return params
+
+class SmaStream(IndicatorStream):
+    name = "sma"
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+        th.Property("agg_open", th.NumberType),
+        th.Property("agg_high", th.NumberType),
+        th.Property("agg_low", th.NumberType),
+        th.Property("agg_close", th.NumberType),
+        th.Property("agg_volume", th.NumberType),
+        th.Property("agg_vwap", th.NumberType),
+        th.Property("agg_transactions", th.NumberType),
+        th.Property("agg_otc", th.BooleanType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        base_params = self.get_params()
+        params = base_params.copy()
+        params.pop("tickers")
+        for ticker_record in ticker_records:
+            ticker = ticker_record.get("ticker")
+            params["ticker"] = ticker
+            record = self.client.get_sma(**params)
+            record = asdict(record)
+            flattened_records = []
+            aggregates_by_ts = {agg['timestamp']: agg for agg in record['underlying']['aggregates']}
+
+            for val in record['values']:
+                ts = val['timestamp']
+                agg = aggregates_by_ts.get(ts, {})
+                flat_record = {
+                    'timestamp': ts,
+                    'value': val['value'],
+                    'url': record['underlying']['url'],
+                    # Add all aggregate fields with a prefix 'agg_'
+                    **{f"agg_{k}": v for k, v in agg.items() if k != 'timestamp'}
+                }
+                flattened_records.append(flat_record)
+
+            for fr in flattened_records:
+                check_missing_fields(self.schema, fr)
+                yield fr
