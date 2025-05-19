@@ -11,6 +11,7 @@ plugins:
   - name: "tap-polygon"
     namespace: "tap_polygon"
     pip_url: -e .
+
     capabilities:
     - state
     - catalog
@@ -19,10 +20,10 @@ plugins:
     - stream-maps
 
     settings:
-    - name: password
+    - name: api_key
       kind: password
-      label: Password
-      description: Polygon API Key
+      label: Polygon API Key
+      description: Polygon.io API Key
       sensitive: true
 
     - name: start_date
@@ -30,9 +31,16 @@ plugins:
       label: Start Date
       description: Initial date to start extracting data from
 
+    select:
+    - stock_tickers.*
+    - ticker_details.*
+
     config:
       start_date: '2020-01-01T00:00:00Z'
       api_key: ${POLYGON_API_KEY}
+      stock_tickers:
+        - AAPL
+        - MSFT
 
   loaders:
   - name: target-jsonl
