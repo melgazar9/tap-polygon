@@ -10,7 +10,7 @@ from tap_polygon.client import PolygonRestStream
 import pandas as pd
 from dataclasses import asdict
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from singer_sdk.helpers._state import increment_state
 from tap_polygon.utils import check_missing_fields
@@ -429,6 +429,7 @@ class TradesStream(PolygonRestStream):
     replication_key = "participant_timestamp"
     replication_method = "INCREMENTAL"
     is_sorted = False  # Issue updating the incremental state
+    is_timestamp_replication_key = False  # It's technically true but set to False because the incremental key is in nanosecond epoch time.
     schema = th.PropertiesList(
         th.Property("conditions", th.ArrayType(th.NumberType)),
         th.Property("correction", th.StringType),
@@ -453,13 +454,25 @@ class TradesStream(PolygonRestStream):
     def partitions(self) -> list[dict]:
         return [{"ticker": t["ticker"]} for t in self._ticker_records]
 
-    def get_starting_timestamp(self, context: dict) -> str:
-        ticker = context["ticker"]
+    def get_starting_timestamp(self, context: dict) -> int:
         state = self.get_context_state(context)
 
-        if state and ticker in state:
-            return state[ticker]  # Resume from last saved timestamp
-        return self.config["start_date"]
+        start_timestamp_cfg = self.config.get("start_date")
+        start_timestamp_cfg_ns = int(
+            datetime.fromisoformat(start_timestamp_cfg.replace("Z", "+00:00")).timestamp() * 1e9
+        )
+
+        state_timestamp_ns = state.get("replication_key_value")
+
+        if state_timestamp_ns is None:
+            state_timestamp_ns = start_timestamp_cfg_ns
+        else:
+            state_timestamp_ns = int(state_timestamp_ns)
+
+        start_timestamp_ns = max(start_timestamp_cfg_ns, state_timestamp_ns)
+        start_timestamp_iso = datetime.fromtimestamp(start_timestamp_ns / 1e9, tz=timezone.utc).isoformat()
+
+        return start_timestamp_iso
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         if context is None or "ticker" not in context:
@@ -475,10 +488,9 @@ class TradesStream(PolygonRestStream):
         params = base_params.copy()
         params.pop("tickers", None)
         params["ticker"] = ticker
-
-        start_timestamp = self.get_starting_timestamp(context)
-        params["timestamp_gte"] = start_timestamp
+        params["timestamp_gte"] = self.get_starting_timestamp(context)
         state = self.get_context_state(context)
+
         for trade in self.client.list_trades(**params):
             record = asdict(trade)
             check_missing_fields(self.schema, record)
