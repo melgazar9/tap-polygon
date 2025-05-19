@@ -12,6 +12,10 @@ from tap_polygon.streams import (
     TickerTypesStream,
     RelatedCompaniesStream,
     CustomBarsStream,
+    DailyMarketSummaryStream,
+    DailyTickerSummaryStream,
+    TopMarketMoversStream,
+    TradesStream,
 )
 
 
@@ -48,6 +52,10 @@ class TapPolygon(Tap):
             TickerTypesStream(self),
             RelatedCompaniesStream(self, ticker_provider),
             CustomBarsStream(self, ticker_provider),
+            DailyMarketSummaryStream(self),
+            DailyTickerSummaryStream(self, ticker_provider),
+            TopMarketMoversStream(self),
+            TradesStream(self, ticker_provider),
         ]
 
         return streams

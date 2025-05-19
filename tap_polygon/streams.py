@@ -1,7 +1,7 @@
 """Stream type classes for tap-polygon."""
 
 from __future__ import annotations
-
+from singer_sdk.exceptions import ConfigValidationError
 import typing as t
 from importlib import resources
 from singer_sdk import typing as th
@@ -10,6 +10,9 @@ from tap_polygon.client import PolygonRestStream
 import pandas as pd
 from dataclasses import asdict
 import json
+from datetime import datetime
+
+from singer_sdk.helpers._state import increment_state
 from tap_polygon.utils import check_missing_fields
 
 
@@ -56,7 +59,7 @@ class StockTickersStream(PolygonRestStream):
                 sort="ticker",
             ):
                 ticker = asdict(ticker)
-                check_missing_fields(ticker)
+                check_missing_fields(self.schema, ticker)
                 yield ticker
         else:
             logging.info(f"Pulling tickers {tickers}...")
@@ -226,6 +229,9 @@ class CustomBarsStream(PolygonRestStream):
         super().__init__(tap)
         self.ticker_provider = ticker_provider
 
+    # def partitions(self) -> list[dict] | None:
+    #     return {ticker: self.ticker}
+
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         custom_bars_config = self.config.get("custom_bars")
         if not custom_bars_config or len(custom_bars_config) != 1:
@@ -251,3 +257,236 @@ class CustomBarsStream(PolygonRestStream):
                 record["ticker"] = ticker
                 check_missing_fields(self.schema, record)
                 yield record
+
+class DailyMarketSummaryStream(PolygonRestStream):
+    name = "daily_market_summary"
+    schema = th.PropertiesList(
+        th.Property("ticker", th.StringType),
+        th.Property("timestamp", th.NumberType),
+        th.Property("open", th.NumberType),
+        th.Property("high", th.NumberType),
+        th.Property("low", th.NumberType),
+        th.Property("close", th.NumberType),
+        th.Property("volume", th.NumberType),
+        th.Property("vwap", th.NumberType),
+        th.Property("transactions", th.NumberType),
+        th.Property("otc", th.BooleanType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        config_params = self.config.get("daily_market_summary")
+
+        if len(config_params) == 1 and "params" in config_params[0]:
+            params = config_params[0]["params"]
+
+        if "date" in params:
+            date = params.get("date")
+            if date is None or date == "":
+                date = datetime.today().date().isoformat()
+        else:
+            date = datetime.today().date().isoformat()
+
+        params["date"] = date
+
+        data = self.client.get_grouped_daily_aggs(**params)
+
+        for record in data:
+            yield asdict(record)
+
+class DailyTickerSummaryStream(PolygonRestStream):
+    name = "daily_ticker_summary"
+    schema = th.PropertiesList(
+        th.Property("symbol", th.StringType),
+        th.Property("from_", th.StringType),
+        th.Property("open", th.NumberType),
+        th.Property("high", th.NumberType),
+        th.Property("low", th.NumberType),
+        th.Property("close", th.NumberType),
+        th.Property("volume", th.NumberType),
+        th.Property("otc", th.BooleanType),
+        th.Property("pre_market", th.NumberType),
+        th.Property("after_hours", th.NumberType),
+        th.Property("status", th.StringType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        config_params = self.config.get("daily_ticker_summary")
+
+        if len(config_params) == 1 and "params" in config_params[0]:
+            params = config_params[0]["params"]
+
+        if "date" in params:
+            date = params.get("date")
+            if date is None or date == "":
+                date = datetime.today().date().isoformat()
+        else:
+            date = datetime.today().date().isoformat()
+
+        params["date"] = date
+
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            params["ticker"] = ticker
+            ticker_summary = self.client.get_daily_open_close_agg(**params)
+            ticker_summary = asdict(ticker_summary)
+            check_missing_fields(self.schema, ticker_summary)
+            yield ticker_summary
+
+class PreviousDayBarSummaryStream(PolygonRestStream):
+    """ Retrieve the previous trading day's OHLCV data for a specified stock ticker. Not really useful given we have the other streams. """
+    name = "previous_day_bar"
+    pass
+
+class TickerSnapshotStream(PolygonRestStream):
+    """ Retrieve the most recent market data snapshot for a single ticker. Not really useful given we have the other streams."""
+    name = "ticker_snapshot"
+    pass
+
+class FullMarketSnapshotStream(PolygonRestStream):
+    """
+        Retrieve a comprehensive snapshot of the entire U.S. stock market, covering over 10,000+ actively traded tickers in a single response.
+        Not really useful given we have the other streams.
+    """
+    name = "full_market_snapshot"
+    pass
+
+class UnifiedSnapshotStream(PolygonRestStream):
+    """
+        Retrieve unified snapshots of market data for multiple asset classes including stocks, options, forex, and cryptocurrencies in a single request.
+        Not really useful given we have the other streams.
+    """
+    name = "unified_snapshot"
+    pass
+
+
+class TopMarketMoversStream(PolygonRestStream):
+    """
+        Retrieve snapshot data highlighting the top 20 gainers or losers in the U.S. stock market.
+        Gainers are stocks with the largest percentage increase since the previous day’s close, and losers are those
+        with the largest percentage decrease. Only tickers with a minimum trading volume of 10,000 are included.
+        Snapshot data is cleared daily at 3:30 AM EST and begins repopulating as exchanges report new information,
+        typically starting around 4:00 AM EST.
+    """
+    name = "top_market_movers"
+    schema = th.PropertiesList(
+        th.Property("day", th.AnyType()),
+        th.Property("last_quote", th.AnyType()),
+        th.Property("last_trade", th.AnyType()),
+        th.Property("min", th.AnyType()),
+        th.Property("prev_day", th.AnyType()),
+        th.Property("ticker", th.StringType),
+        th.Property("todays_change", th.NumberType),
+        th.Property("todays_change_percent", th.NumberType),
+        th.Property("updated", th.NumberType),
+        th.Property("fair_market_value", th.BooleanType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        config_params = self.config.get("top_market_movers")
+        if len(config_params) == 1 and "params" in config_params[0]:
+            params = config_params[0]["params"]
+            if "market_type" not in params.keys():
+                params["market_type"] = "stocks"
+        else:
+            raise ConfigValidationError("Could not parse config properly for top_market_movers")
+
+        if params["direction"] == "" or params["direction"].lower() == "both" or "direction" not in params:
+            for direction in ["gainers", "losers"]:
+                params["direction"] = direction
+                data = self.client.get_snapshot_direction(**params)
+                for record in data:
+                    record = asdict(record)
+                    record["direction"] = direction
+                    yield record
+        else:
+            data = self.client.get_snapshot_direction(**params)
+            for record in data:
+                record = asdict(record)
+                yield record
+
+
+class TradesStream(PolygonRestStream):
+    """
+    Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
+    Each record includes price, size, exchange, trade conditions, and precise timestamp information.
+    This granular data is foundational for constructing aggregated bars and performing in-depth analyses, as it captures
+    every eligible trade that contributes to calculations of open, high, low, and close (OHLC) values.
+    By leveraging these trades, users can refine their understanding of intraday price movements, test and optimize
+    algorithmic strategies, and ensure compliance by maintaining an auditable record of market activity.
+
+    Use Cases: Intraday analysis, algorithmic trading, market microstructure research, data integrity and compliance.
+
+    NOTE: This stream cannot stream multiple tickers at once, so if we want to stream or fetch trades for multiple
+    tickers you need to send multiple parallel or sequential API requests (one for each ticker).
+    Data is delayed 15 minutes for developer plan. For real-time data top the Advanced Subscription is needed.
+    """
+    name = "trades"
+    replication_key = "participant_timestamp"
+    replication_method = "INCREMENTAL"
+    is_sorted = False  # Issue updating the incremental state
+    schema = th.PropertiesList(
+        th.Property("conditions", th.ArrayType(th.NumberType)),
+        th.Property("correction", th.StringType),
+        th.Property("exchange", th.NumberType),
+        th.Property("id", th.StringType),
+        th.Property("participant_timestamp", th.IntegerType),
+        th.Property("price", th.NumberType),
+        th.Property("sequence_number", th.IntegerType),
+        th.Property("sip_timestamp", th.IntegerType),
+        th.Property("size", th.IntegerType),
+        th.Property("tape", th.IntegerType),
+        th.Property("trf_id", th.IntegerType),
+        th.Property("trf_timestamp", th.NumberType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+        self._ticker_records = self.ticker_provider.get_tickers()
+
+    @property
+    def partitions(self) -> list[dict]:
+        return [{"ticker": t["ticker"]} for t in self._ticker_records]
+
+    def get_starting_timestamp(self, context: dict) -> str:
+        ticker = context["ticker"]
+        state = self.get_context_state(context)
+
+        if state and ticker in state:
+            return state[ticker]  # Resume from last saved timestamp
+        return self.config["start_date"]
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        if context is None or "ticker" not in context:
+            raise RuntimeError("Partition context must include a 'ticker'.")
+
+        ticker = context["ticker"]
+        trades_config = self.config.get("trades")
+        if len(trades_config) == 1 and "params" in trades_config[0]:
+            base_params = trades_config[0]["params"]
+        else:
+            raise ConfigValidationError("Could not parse config for trades stream.")
+
+        params = base_params.copy()
+        params.pop("tickers", None)
+        params["ticker"] = ticker
+
+        start_timestamp = self.get_starting_timestamp(context)
+        params["timestamp_gte"] = start_timestamp
+        state = self.get_context_state(context)
+        for trade in self.client.list_trades(**params):
+            record = asdict(trade)
+            check_missing_fields(self.schema, record)
+            increment_state(
+                state,
+                replication_key=self.replication_key,
+                latest_record=record,
+                is_sorted=self.is_sorted,
+                check_sorted=self.check_sorted,
+            )
+            yield record
