@@ -36,6 +36,7 @@ plugins:
     - ticker_details.*
     - ticker_types.*
     - related_companies.*
+    - custom_bars.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'
@@ -43,6 +44,15 @@ plugins:
       stock_tickers:
         - AAPL
         - MSFT
+      custom_bars:
+        - params:
+            multiplier: 1
+            timespan: "second"
+            from_: "2023-01-05"
+            to: "2023-01-07"
+            adjusted: true
+            sort: "asc"
+            limit: 100
 
   loaders:
   - name: target-jsonl

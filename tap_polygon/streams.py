@@ -12,6 +12,7 @@ from dataclasses import asdict
 import json
 from tap_polygon.utils import check_missing_fields
 
+
 class StockTickersStream(PolygonRestStream):
     """Fetch all stock tickers from Polygon."""
 
@@ -118,7 +119,9 @@ class TickerDetailsStream(PolygonRestStream):
         th.Property("homepage_url", th.StringType, optional=True),
         th.Property("list_date", th.StringType, optional=True),
         th.Property("locale", th.StringType, optional=True),  # enum: "us", "global"
-        th.Property("market", th.StringType, optional=True),  # enum: "stocks", "crypto", "fx", "otc", "indices"
+        th.Property(
+            "market", th.StringType, optional=True
+        ),  # enum: "stocks", "crypto", "fx", "otc", "indices"
         th.Property("market_cap", th.NumberType, optional=True),
         th.Property("name", th.StringType, optional=True),
         th.Property("phone_number", th.StringType, optional=True),
@@ -155,7 +158,9 @@ class TickerDetailsStream(PolygonRestStream):
 class TickerTypesStream(PolygonRestStream):
     name = "ticker_types"
     schema = th.PropertiesList(
-        th.Property("asset_class", th.StringType),  # enum: stocks, options, crypto, fx, indices
+        th.Property(
+            "asset_class", th.StringType
+        ),  # enum: stocks, options, crypto, fx, indices
         th.Property("code", th.StringType),
         th.Property("description", th.StringType),
         th.Property("locale", th.StringType),  # enum: us, global
@@ -172,14 +177,10 @@ class TickerTypesStream(PolygonRestStream):
 class RelatedCompaniesStream(PolygonRestStream):
     name = "related_companies"
     schema = th.PropertiesList(
-        th.Property("ticker", th.StringType()),
+        th.Property("ticker", th.StringType),
         th.Property(
             "related_companies",
-            th.ArrayType(
-                th.ObjectType(
-                    th.Property("ticker", th.StringType())
-                )
-            ),
+            th.ArrayType(th.ObjectType(th.Property("ticker", th.StringType))),
         ),
     ).to_dict()
 
@@ -198,7 +199,55 @@ class RelatedCompaniesStream(PolygonRestStream):
 
             related_companies_output = {
                 "ticker": ticker,
-                "related_companies": related_list
+                "related_companies": related_list,
             }
 
             yield related_companies_output
+
+
+class CustomBarsStream(PolygonRestStream):
+    name = "custom_bars"
+    replication_key = "timestamp"
+    is_sorted = True
+    schema = th.PropertiesList(
+        th.Property("ticker", th.StringType),
+        th.Property("timestamp", th.NumberType),
+        th.Property("open", th.NumberType),
+        th.Property("high", th.NumberType),
+        th.Property("low", th.NumberType),
+        th.Property("close", th.NumberType),
+        th.Property("volume", th.NumberType),
+        th.Property("vwap", th.NumberType),
+        th.Property("transactions", th.NumberType),
+        th.Property("otc", th.BooleanType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        custom_bars_config = self.config.get("custom_bars")
+        if not custom_bars_config or len(custom_bars_config) != 1:
+            raise ValueError("Must supply exactly one params object in custom_bars.")
+
+        base_params = custom_bars_config[0].get("params", {})
+        ticker_records = self.ticker_provider.get_tickers()
+
+        for ticker_record in ticker_records:
+            ticker = ticker_record.get("ticker")
+            params = base_params.copy()
+            params["ticker"] = ticker
+
+            if "from" in params:
+                params["from_"] = params.pop("from")
+
+            logging.info(
+                f"Streaming {params.get('multiplier')} {params.get('timespan')} bars for ticker {ticker}..."
+            )
+
+            for bar in self.client.list_aggs(**params):
+                record = asdict(bar)
+                record["ticker"] = ticker
+                check_missing_fields(self.schema, record)
+                yield record
