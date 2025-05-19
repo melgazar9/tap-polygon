@@ -89,7 +89,6 @@ class CachedTickerProvider:
 
 class TickerDetailsStream(PolygonRestStream):
     name = "ticker_details"
-    primary_keys = ["ticker"]
     schema = th.PropertiesList(
         th.Property("active", th.BooleanType, optional=True),
         th.Property(
@@ -151,3 +150,55 @@ class TickerDetailsStream(PolygonRestStream):
             ticker_details = asdict(self.client.get_ticker_details(ticker))
             check_missing_fields(self.schema, ticker_details)
             yield ticker_details
+
+
+class TickerTypesStream(PolygonRestStream):
+    name = "ticker_types"
+    schema = th.PropertiesList(
+        th.Property("asset_class", th.StringType),  # enum: stocks, options, crypto, fx, indices
+        th.Property("code", th.StringType),
+        th.Property("description", th.StringType),
+        th.Property("locale", th.StringType),  # enum: us, global
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_types = self.client.get_ticker_types()
+        for ticker_type in ticker_types:
+            tt = asdict(ticker_type)
+            check_missing_fields(self.schema, tt)
+            yield tt
+
+
+class RelatedCompaniesStream(PolygonRestStream):
+    name = "related_companies"
+    schema = th.PropertiesList(
+        th.Property("ticker", th.StringType()),
+        th.Property(
+            "related_companies",
+            th.ArrayType(
+                th.ObjectType(
+                    th.Property("ticker", th.StringType())
+                )
+            ),
+        ),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            related_companies = self.client.get_related_companies(ticker)
+            related_list = [asdict(rc) for rc in related_companies]
+            for rc in related_list:
+                check_missing_fields(self.schema, rc)
+
+            related_companies_output = {
+                "ticker": ticker,
+                "related_companies": related_list
+            }
+
+            yield related_companies_output

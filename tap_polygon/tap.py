@@ -9,6 +9,8 @@ from tap_polygon.streams import (
     StockTickersStream,
     CachedTickerProvider,
     TickerDetailsStream,
+    TickerTypesStream,
+    RelatedCompaniesStream,
 )
 
 
@@ -42,6 +44,8 @@ class TapPolygon(Tap):
         streams: list[PolygonRestStream] = [
             stock_tickers_stream,
             TickerDetailsStream(self, ticker_provider),
+            TickerTypesStream(self),
+            RelatedCompaniesStream(self, ticker_provider),
         ]
 
         return streams

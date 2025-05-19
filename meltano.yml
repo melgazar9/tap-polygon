@@ -34,6 +34,8 @@ plugins:
     select:
     - stock_tickers.*
     - ticker_details.*
+    - ticker_types.*
+    - related_companies.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'
