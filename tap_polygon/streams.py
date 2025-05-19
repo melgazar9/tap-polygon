@@ -10,7 +10,7 @@ from tap_polygon.client import PolygonRestStream
 import pandas as pd
 from dataclasses import asdict
 import json
-
+from tap_polygon.utils import check_missing_fields
 
 class StockTickersStream(PolygonRestStream):
     """Fetch all stock tickers from Polygon."""
@@ -41,9 +41,6 @@ class StockTickersStream(PolygonRestStream):
         return {"ticker": record.get("ticker")}
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        logging.info(
-            f"""\n self.config['stock_tickers']\n {self.config['stock_tickers']}"""
-        )
         tickers = ""
         if "stock_tickers" in self.config.keys():
             tickers = self.config.get("stock_tickers")
@@ -58,6 +55,7 @@ class StockTickersStream(PolygonRestStream):
                 sort="ticker",
             ):
                 ticker = asdict(ticker)
+                check_missing_fields(ticker)
                 yield ticker
         else:
             logging.info(f"Pulling tickers {tickers}...")
@@ -70,6 +68,7 @@ class StockTickersStream(PolygonRestStream):
                     ticker=t,
                 ):
                     ticker = asdict(ticker)
+                    check_missing_fields(self.schema, ticker)
                     yield ticker
 
 
@@ -92,44 +91,53 @@ class TickerDetailsStream(PolygonRestStream):
     name = "ticker_details"
     primary_keys = ["ticker"]
     schema = th.PropertiesList(
-        th.Property("ticker", th.StringType),
-        th.Property("cik", th.StringType),
-        th.Property("name", th.StringType),
-        th.Property("description", th.StringType),
-        th.Property("homepage_url", th.StringType),
-        th.Property("list_date", th.StringType),
-        th.Property("market", th.StringType),
-        th.Property("locale", th.StringType),
-        th.Property("primary_exchange", th.StringType),
-        th.Property("type", th.StringType),
-        th.Property("sic_code", th.AnyType()),
-        th.Property("sic_description", th.StringType),
-        th.Property("total_employees", th.IntegerType),
-        th.Property("logo", th.StringType),
-        th.Property("phone_number", th.StringType),
+        th.Property("active", th.BooleanType, optional=True),
         th.Property(
             "address",
             th.ObjectType(
-                th.Property("address1", th.StringType),
-                th.Property("city", th.StringType),
-                th.Property("state", th.StringType),
-                th.Property("postal_code", th.StringType),
+                th.Property("address1", th.StringType, optional=True),
+                th.Property("address2", th.StringType, optional=True),
+                th.Property("city", th.StringType, optional=True),
+                th.Property("postal_code", th.StringType, optional=True),
+                th.Property("state", th.StringType, optional=True),
             ),
+            optional=True,
         ),
         th.Property(
             "branding",
             th.ObjectType(
-                th.Property("icon_url", th.StringType),
-                th.Property("logo_url", th.StringType),
+                th.Property("icon_url", th.StringType, optional=True),
+                th.Property("logo_url", th.StringType, optional=True),
             ),
+            optional=True,
         ),
-        th.Property("share_class_figi", th.StringType),
-        th.Property("composite_figi", th.StringType),
-        th.Property("share_class_shares_outstanding", th.NumberType),
-        th.Property("weighted_shares_outstanding", th.NumberType),
-        th.Property("round_lot", th.IntegerType),
-        th.Property("active", th.BooleanType),
-        th.Property("updated_utc", th.StringType),
+        th.Property("cik", th.StringType, optional=True),
+        th.Property("composite_figi", th.StringType, optional=True),
+        th.Property("currency_name", th.StringType, optional=True),
+        th.Property("delisted_utc", th.StringType, optional=True),
+        th.Property("description", th.StringType, optional=True),
+        th.Property("homepage_url", th.StringType, optional=True),
+        th.Property("list_date", th.StringType, optional=True),
+        th.Property("locale", th.StringType, optional=True),  # enum: "us", "global"
+        th.Property("market", th.StringType, optional=True),  # enum: "stocks", "crypto", "fx", "otc", "indices"
+        th.Property("market_cap", th.NumberType, optional=True),
+        th.Property("name", th.StringType, optional=True),
+        th.Property("phone_number", th.StringType, optional=True),
+        th.Property("primary_exchange", th.StringType, optional=True),
+        th.Property("round_lot", th.NumberType, optional=True),
+        th.Property("share_class_figi", th.StringType, optional=True),
+        th.Property("share_class_shares_outstanding", th.NumberType, optional=True),
+        th.Property("sic_code", th.StringType, optional=True),
+        th.Property("sic_description", th.StringType, optional=True),
+        th.Property("ticker", th.StringType, optional=True),
+        th.Property("ticker_root", th.StringType, optional=True),
+        th.Property("ticker_suffix", th.StringType, optional=True),
+        th.Property("total_employees", th.NumberType, optional=True),
+        th.Property("type", th.StringType, optional=True),
+        th.Property("weighted_shares_outstanding", th.NumberType, optional=True),
+        th.Property("base_currency_name", th.StringType, optional=True),
+        th.Property("base_currency_symbol", th.StringType, optional=True),
+        th.Property("currency_symbol", th.StringType, optional=True),
     ).to_dict()
 
     def __init__(self, tap, ticker_provider: CachedTickerProvider):
@@ -140,5 +148,6 @@ class TickerDetailsStream(PolygonRestStream):
         ticker_records = self.ticker_provider.get_tickers()
         for record in ticker_records:
             ticker = record.get("ticker")
-            ticker_details = self.client.get_ticker_details(ticker)
-            yield asdict(ticker_details)
+            ticker_details = asdict(self.client.get_ticker_details(ticker))
+            check_missing_fields(self.schema, ticker_details)
+            yield ticker_details
