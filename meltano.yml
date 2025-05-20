@@ -50,6 +50,14 @@ plugins:
       - market_holidays.*
       - market_status.*
       - condition_codes.*
+      - ipos.*
+      - splits.*
+      - dividends.*
+      - ticker_events.*
+      - financials.*
+      - short_interest.*
+      - short_volume.*
+      - news.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'

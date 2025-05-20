@@ -56,7 +56,6 @@ class StockTickersStream(PolygonRestStream):
             for ticker in self.client.list_tickers(
                 active="true",
                 order="asc",
-                limit="100",
                 sort="ticker",
             ):
                 ticker = asdict(ticker)
@@ -68,7 +67,6 @@ class StockTickersStream(PolygonRestStream):
                 for ticker in self.client.list_tickers(
                     active="true",
                     order="asc",
-                    limit="100",
                     sort="ticker",
                     ticker=t,
                 ):
@@ -279,6 +277,8 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
         if len(config_params) == 1 and "params" in config_params[0]:
             params = config_params[0]["params"]
+        else:
+            params = {}
 
         if "date" in params:
             date = params.get("date")
@@ -319,6 +319,8 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
         if len(config_params) == 1 and "params" in config_params[0]:
             params = config_params[0]["params"]
+        else:
+            params = {}
 
         if "date" in params:
             date = params.get("date")
@@ -408,6 +410,7 @@ class TopMarketMoversStream(PolygonRestStream):
             data = self.client.get_snapshot_direction(**params)
             for record in data:
                 record = asdict(record)
+                check_missing_fields(self.schema, record)
                 yield record
 
 
@@ -687,6 +690,7 @@ class ExchangesStream(PolygonRestStream):
         exchanges = self.client.get_exchanges(**params)
 
         for record in exchanges:
+            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -710,6 +714,7 @@ class MarketHolidaysStream(PolygonRestStream):
         holidays = self.client.get_market_holidays(**params)
 
         for record in holidays:
+            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 class MarketStatusStream(PolygonRestStream):
@@ -717,25 +722,25 @@ class MarketStatusStream(PolygonRestStream):
     name = "market_status"
 
     schema = th.PropertiesList(
-        th.Property("afterHours", th.BooleanType, required=False),
+        th.Property("afterHours", th.BooleanType),
 
         th.Property(
             "currencies",
             th.ObjectType(
-                th.Property("crypto", th.StringType, required=False),
-                th.Property("fx", th.StringType, required=False),
+                th.Property("crypto", th.StringType),
+                th.Property("fx", th.StringType),
             ),
             required=False,
         ),
 
-        th.Property("earlyHours", th.BooleanType, required=False),
+        th.Property("earlyHours", th.BooleanType),
 
         th.Property(
             "exchanges",
             th.ObjectType(
-                th.Property("nasdaq", th.StringType, required=False),
-                th.Property("nyse", th.StringType, required=False),
-                th.Property("otc", th.StringType, required=False),
+                th.Property("nasdaq", th.StringType),
+                th.Property("nyse", th.StringType),
+                th.Property("otc", th.StringType),
             ),
             required=False,
         ),
@@ -743,26 +748,27 @@ class MarketStatusStream(PolygonRestStream):
         th.Property(
             "indicesGroups",
             th.ObjectType(
-                th.Property("cccy", th.StringType, required=False),
-                th.Property("cgi", th.StringType, required=False),
-                th.Property("dow_jones", th.StringType, required=False),
-                th.Property("ftse_russell", th.StringType, required=False),
-                th.Property("msci", th.StringType, required=False),
-                th.Property("mstar", th.StringType, required=False),
-                th.Property("mstarc", th.StringType, required=False),
-                th.Property("nasdaq", th.StringType, required=False),
-                th.Property("s_and_p", th.StringType, required=False),
-                th.Property("societe_generale", th.StringType, required=False),
+                th.Property("cccy", th.StringType),
+                th.Property("cgi", th.StringType),
+                th.Property("dow_jones", th.StringType),
+                th.Property("ftse_russell", th.StringType),
+                th.Property("msci", th.StringType),
+                th.Property("mstar", th.StringType),
+                th.Property("mstarc", th.StringType),
+                th.Property("nasdaq", th.StringType),
+                th.Property("s_and_p", th.StringType),
+                th.Property("societe_generale", th.StringType),
             ),
             required=False,
         ),
 
-        th.Property("market", th.StringType, required=False),
+        th.Property("market", th.StringType),
         th.Property("serverTime", th.StringType),  # required by omission in docs
     ).to_dict()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         market_status = self.client.get_market_status()
+        check_missing_fields(self.schema, record)
         yield asdict(market_status)
 
 class ConditionCodesStream(PolygonRestStream):
@@ -770,7 +776,7 @@ class ConditionCodesStream(PolygonRestStream):
     name = "condition_codes"
 
     schema = th.PropertiesList(
-        th.Property("abbreviation", th.StringType, required=False),
+        th.Property("abbreviation", th.StringType),
 
         th.Property(
             "asset_class",
@@ -780,22 +786,22 @@ class ConditionCodesStream(PolygonRestStream):
 
         th.Property("data_types", th.ArrayType(th.StringType)),
 
-        th.Property("description", th.StringType, required=False),
+        th.Property("description", th.StringType),
 
-        th.Property("exchange", th.IntegerType, required=False),
+        th.Property("exchange", th.IntegerType),
 
         th.Property("id", th.IntegerType),
 
-        th.Property("legacy", th.BooleanType, required=False),
+        th.Property("legacy", th.BooleanType),
 
         th.Property("name", th.StringType),
 
         th.Property(
             "sip_mapping",
             th.ObjectType(
-                th.Property("CTA", th.StringType, required=False),
-                th.Property("OPRA", th.StringType, required=False),
-                th.Property("UTP", th.StringType, required=False),
+                th.Property("CTA", th.StringType),
+                th.Property("OPRA", th.StringType),
+                th.Property("UTP", th.StringType),
             )
         ),
 
@@ -844,4 +850,253 @@ class ConditionCodesStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.list_conditions():
+            check_missing_fields(self.schema, record)
             yield asdict(record)
+
+
+class IPOsStream(PolygonRestStream):
+    """ IPOs Stream """
+    name = "ipos"
+    schema = th.PropertiesList(
+        th.Property("announced_date", th.StringType),
+        th.Property("currency_code", th.StringType),
+        th.Property("final_issue_price", th.NumberType),
+        th.Property("highest_offer_price", th.NumberType),
+        th.Property(
+            "ipo_status",
+            th.StringType,
+            enum=[
+                "direct_listing_process",
+                "history",
+                "new",
+                "pending",
+                "postponed",
+                "rumor",
+                "withdrawn"
+            ]
+        ),
+        th.Property("isin", th.StringType),
+        th.Property("issuer_name", th.StringType),
+        th.Property("last_updated", th.StringType),
+        th.Property("listing_date", th.StringType),
+        th.Property("lot_size", th.NumberType),
+        th.Property("lowest_offer_price", th.NumberType),
+        th.Property("max_shares_offered", th.NumberType),
+        th.Property("min_shares_offered", th.NumberType),
+        th.Property("primary_exchange", th.StringType),
+        th.Property("security_description", th.StringType),
+        th.Property("security_type", th.StringType),
+        th.Property("shares_outstanding", th.NumberType),
+        th.Property("ticker", th.StringType),
+        th.Property("total_offer_size", th.NumberType),
+        th.Property("us_code", th.StringType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        for record in self.client.vx.list_ipos():
+            check_missing_fields(self.schema, record)
+            yield asdict(record)
+
+class SplitsStream(PolygonRestStream):
+    """ Splits Stream """
+    name = "splits"
+    schema = th.PropertiesList(
+        th.Property("cash_amount", th.NumberType),
+        th.Property("currency", th.StringType),
+        th.Property("declaration_date", th.StringType),
+        th.Property(
+            "dividend_type",
+            th.StringType,
+            enum=["CD", "SC", "LT", "ST"]
+        ),
+        th.Property("ex_dividend_date", th.StringType),
+        th.Property("frequency", th.IntegerType),
+        th.Property("id", th.StringType),
+        th.Property("pay_date", th.StringType),
+        th.Property("record_date", th.StringType),
+        th.Property("ticker", th.StringType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        for record in self.client.list_splits(order="asc", sort="ticker"):
+            check_missing_fields(self.schema, record)
+            yield asdict(record)
+
+class DividendsStream(PolygonRestStream):
+    """ Dividends Stream """
+    name = "dividends"
+    schema = th.PropertiesList(
+        th.Property("execution_date", th.StringType),
+        th.Property("id", th.StringType),
+        th.Property("split_from", th.NumberType),
+        th.Property("split_to", th.NumberType),
+        th.Property("ticker", th.StringType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        for record in self.client.list_dividends(order="asc", sort="ex_dividend_date"):
+            check_missing_fields(self.schema, record)
+            yield asdict(record)
+
+
+class TickerEventsStream(PolygonRestStream):
+    """ Ticker Events Stream """
+    name = "ticker_events"
+    schema = th.PropertiesList(
+        th.Property("events", th.ArrayType(
+            th.ObjectType(
+                th.Property("date", th.StringType),
+                th.Property("ticker_change", th.ObjectType(
+                    th.Property("ticker", th.StringType)
+                )),
+                th.Property("type", th.StringType)
+            )
+        )),
+        th.Property("name", th.StringType),
+        th.Property("cik", th.StringType),
+        th.Property("composite_figi", th.StringType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            record = asdict(self.client.get_ticker_events(ticker))
+            check_missing_fields(self.schema, record)
+            yield record
+
+
+class FinancialsStream(PolygonRestStream):
+    """ Financials Stream """
+    name = "financials"
+    schema = th.PropertiesList(
+        th.Property("acceptance_datetime", th.StringType),
+        th.Property("cik", th.StringType),
+        th.Property("company_name", th.StringType),
+        th.Property("end_date", th.StringType),
+        th.Property("filing_date", th.StringType),
+        th.Property("financials", th.ObjectType(), required=True),
+        th.Property("fiscal_period", th.StringType),
+        th.Property("fiscal_year", th.StringType),
+        th.Property("sic", th.StringType),
+        th.Property("source_filing_file_url", th.StringType),
+        th.Property("source_filing_url", th.StringType),
+        th.Property("start_date", th.StringType),
+        th.Property("tickers", th.ArrayType(th.StringType)),
+        th.Property("timeframe", th.StringType)
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            for record in self.client.vx.list_stock_financials(ticker=ticker, order="asc", sort="filing_date"):
+                record = asdict(record)
+                check_missing_fields(self.schema, record)
+                yield record
+
+class ShortInterestStream(PolygonRestStream):
+    """ Short Interest Stream """
+    name = "short_interest"
+    schema = th.PropertiesList(
+        th.Property("avg_daily_volume", th.IntegerType),
+        th.Property("days_to_cover", th.NumberType),
+        th.Property("settlement_date", th.StringType),
+        th.Property("short_interest", th.IntegerType),
+        th.Property("ticker", th.StringType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            for record in self.client.vx.list_short_interest(ticker=ticker, order="asc", sort="ticker"):
+                record = asdict(record)
+                check_missing_fields(self.schema, record)
+                yield record
+
+class ShortVolumeStream(PolygonRestStream):
+    """ Short Volume Stream """
+    name = "short_volume"
+    schema = th.PropertiesList(
+        th.Property("adf_short_volume", th.IntegerType),
+        th.Property("adf_short_volume_exempt", th.IntegerType),
+        th.Property("date", th.StringType),
+        th.Property("exempt_volume", th.IntegerType),
+        th.Property("nasdaq_carteret_short_volume", th.IntegerType),
+        th.Property("nasdaq_carteret_short_volume_exempt", th.IntegerType),
+        th.Property("nasdaq_chicago_short_volume", th.IntegerType),
+        th.Property("nasdaq_chicago_short_volume_exempt", th.IntegerType),
+        th.Property("non_exempt_volume", th.IntegerType),
+        th.Property("nyse_short_volume", th.IntegerType),
+        th.Property("nyse_short_volume_exempt", th.IntegerType),
+        th.Property("short_volume", th.IntegerType),
+        th.Property("short_volume_ratio", th.NumberType),
+        th.Property("ticker", th.StringType),
+        th.Property("total_volume", th.IntegerType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            for record in self.client.vx.list_short_volume(ticker=ticker, order="asc", sort="ticker"):
+                record = asdict(record)
+                check_missing_fields(self.schema, record)
+                yield record
+
+class NewsStream(PolygonRestStream):
+    """ News Stream """
+    name = "news"
+    schema = th.PropertiesList(
+        th.Property("amp_url", th.StringType),
+        th.Property("article_url", th.StringType),
+        th.Property("author", th.StringType),
+        th.Property("description", th.StringType),
+        th.Property("id", th.StringType),
+        th.Property("image_url", th.StringType),
+        th.Property("insights", th.ArrayType(th.ObjectType(
+            th.Property("sentiment", th.StringType),
+            th.Property("sentiment_reasoning", th.StringType),
+            th.Property("ticker", th.StringType),
+            th.Property("keywords", th.ArrayType(th.StringType))
+        ))),
+        th.Property("published_utc", th.StringType),
+        th.Property("publisher", th.ObjectType(
+            th.Property("favicon_url", th.StringType),
+            th.Property("homepage_url", th.StringType),
+            th.Property("logo_url", th.StringType),
+            th.Property("name", th.StringType),
+        )),
+        th.Property("tickers", th.ArrayType(th.StringType)),
+        th.Property("title", th.StringType),
+    ).to_dict()
+
+    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+        super().__init__(tap)
+        self.ticker_provider = ticker_provider
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.ticker_provider.get_tickers()
+        for ticker_record in ticker_records:
+            ticker = ticker_record["ticker"]
+            for record in self.client.list_ticker_news(ticker=ticker, order="asc", sort="published_utc"):
+                record = asdict(record)
+                check_missing_fields(self.schema, record)
+                yield record
