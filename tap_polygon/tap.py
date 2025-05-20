@@ -53,7 +53,7 @@ class TapPolygon(Tap):
 
     def get_cached_tickers(self) -> t.List[dict]:
         if self._cached_tickers is None:
-            self.logger.info("Fetching and caching all stock tickers...")
+            self.logger.info("Fetching and caching stock tickers...")
             stock_tickers_stream = self.get_stock_tickers_stream()
             self._cached_tickers = list(stock_tickers_stream.get_records(context=None))
             self.logger.info(f"Cached {len(self._cached_tickers)} tickers.")
@@ -67,23 +67,22 @@ class TapPolygon(Tap):
 
     def discover_streams(self) -> list[PolygonRestStream]:
         stock_tickers_stream = self.get_stock_tickers_stream()
-        ticker_provider = CachedTickerProvider(self)
 
         streams: list[PolygonRestStream] = [
             stock_tickers_stream,
-            TickerDetailsStream(self, ticker_provider),
+            TickerDetailsStream(self),
             TickerTypesStream(self),
-            RelatedCompaniesStream(self, ticker_provider),
-            CustomBarsStream(self, ticker_provider),
+            RelatedCompaniesStream(self),
+            CustomBarsStream(self),
             DailyMarketSummaryStream(self),
-            DailyTickerSummaryStream(self, ticker_provider),
+            DailyTickerSummaryStream(self),
             TopMarketMoversStream(self),
-            TradeStream(self, ticker_provider),
-            QuoteStream(self, ticker_provider),
-            SmaStream(self, ticker_provider),
-            EmaStream(self, ticker_provider),
-            MACDStream(self, ticker_provider),
-            RSIStream(self, ticker_provider),
+            TradeStream(self),
+            QuoteStream(self),
+            SmaStream(self),
+            EmaStream(self),
+            MACDStream(self),
+            RSIStream(self),
             ExchangesStream(self),
             MarketHolidaysStream(self),
             MarketStatusStream(self),
@@ -91,11 +90,11 @@ class TapPolygon(Tap):
             IPOsStream(self),
             SplitsStream(self),
             DividendsStream(self),
-            TickerEventsStream(self, ticker_provider),
-            FinancialsStream(self, ticker_provider),
-            ShortInterestStream(self, ticker_provider),
-            ShortVolumeStream(self, ticker_provider),
-            NewsStream(self, ticker_provider),
+            TickerEventsStream(self),
+            FinancialsStream(self),
+            ShortInterestStream(self),
+            ShortVolumeStream(self),
+            NewsStream(self),
         ]
 
         return streams

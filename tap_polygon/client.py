@@ -19,6 +19,7 @@ import requests
 from singer_sdk.pagination import BaseHATEOASPaginator
 from singer_sdk.exceptions import ConfigValidationError
 from polygon import RESTClient
+from tap_polygon.utils import check_missing_fields
 
 
 class PolygonAPIPaginator(BaseHATEOASPaginator):
@@ -33,6 +34,7 @@ class PolygonRestStream(RESTStream):
     def __init__(self, tap: TapBase):
         super().__init__(tap=tap)
         self.client = RESTClient(self.config["api_key"])
+        self.DEBUG = False
 
     @property
     def url_base(self) -> str:
@@ -43,27 +45,37 @@ class PolygonRestStream(RESTStream):
         )
         return base_url
 
-    def get_query_params(self, override: dict = None) -> dict:
-        base_params = self.config.get(self.name, {}).get("query_params", [{}])
-        base_params["apiKey"] = self.config.get("api_key")
-        if override:
-            base_params.update(override)
-        return base_params
-
     def get_new_paginator(self) -> PolygonAPIPaginator:
         return PolygonAPIPaginator()
 
     def paginate_records(
-        self, url: str, params: dict[str, t.Any]
+            self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
+        query_params_to_log = {k: v for k, v in query_params.items() if k != 'apiKey'}
+        logging.info(
+            f"Streaming {self.name} with query_params: {query_params_to_log}..."
+        )
         next_url = None
         while True:
-            response = requests.get(next_url or url, params=params)
+            response = requests.get(next_url or url, params=query_params)
             response.raise_for_status()
             data = response.json()
 
-            for record in data.get("results", []):
-                yield record
+            if "results" in data and isinstance(data["results"], list):
+                for record in data["results"]:
+                    if self.DEBUG:
+                        if self.name != "stock_tickers":
+                            logging.info("Breakpoint")
+                    if self.name == "custom_bars":
+                        self.clean_custom_bars_record(record, ticker=kwargs.get("ticker"))
+                    check_missing_fields(self.schema, record)
+                    yield record
+            elif "results" in data and isinstance(data["results"], dict):
+                check_missing_fields(self.schema, data["results"])
+                yield data["results"]
+            else:
+                check_missing_fields(self.schema, data)
+                yield data
 
             next_url = data.get("next_url")
             if not next_url:
@@ -80,52 +92,53 @@ class PolygonRestStream(RESTStream):
 
     def parse_config_params(self):
         cfg_params = self.config.get(self.name)
+
+        self.path_params = {}
+        self.query_params = {}
+
         if not cfg_params:
             logging.warning(f"No config set for stream '{self.name}', using defaults.")
-            self.path_params = {}
-            self.query_params = {}
-            return
-        if not cfg_params:
-            # No config set for this stream; safe fallback
-            self.path_params = {}
-            self.query_params = {}
-            return
-
-        if isinstance(cfg_params, dict):
+        elif isinstance(cfg_params, dict):
             if "path_params" in cfg_params:
-                self.path_params = cfg_params.get("path_params")
-                assert len(self.path_params), ConfigValidationError(
-                    f"Error validating path_params in config for {self.name}"
-                )
+                self.path_params = cfg_params["path_params"]
             if "query_params" in cfg_params:
-                self.query_params = cfg_params.get("query_params")
-                assert len(self.query_params), ConfigValidationError(
-                    f"Error validating query_params in config for {self.name}"
-                )
-
+                self.query_params = cfg_params["query_params"]
         elif isinstance(cfg_params, list):
             for params in cfg_params:
                 if not isinstance(params, dict):
                     raise ConfigValidationError(
                         f"Expected dict in '{self.name}', but got {type(params)}: {params}"
                     )
-
                 if "path_params" in params:
-                    self.path_params = params.get("path_params")
-                    assert len(self.path_params), ConfigValidationError(
-                        f"Error validating path_params in config for {self.name}"
-                    )
-                elif "query_params" in params:
-                    self.query_params = params.get("query_params")
-                    assert len(self.query_params), ConfigValidationError(
-                        f"Error validating query_params in config for {self.name}"
-                    )
+                    self.path_params = params["path_params"]
+                if "query_params" in params:
+                    self.query_params = params["query_params"]
         else:
             raise ConfigValidationError(
                 f"Config key '{self.name}' must be a dict or list of dicts."
             )
 
-        # always ensure API key is set for query_params, or set empty dict first
-        if not hasattr(self, "query_params") or self.query_params is None:
+        if not isinstance(self.query_params, dict):
             self.query_params = {}
+
         self.query_params["apiKey"] = self.config.get("api_key")
+
+    @staticmethod
+    def clean_custom_bars_record(record, ticker):
+        rename_map = {
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+            "vw": "vwap",
+            "n": "transactions",
+        }
+
+        for old_key, new_key in rename_map.items():
+            if old_key in record:
+                record[new_key] = record.pop(old_key)
+
+        record["ticker"] = ticker
+        record["otc"] = record.get("otc", None)

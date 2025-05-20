@@ -15,7 +15,6 @@ from singer_sdk.helpers._state import increment_state
 import requests
 from polygon.rest.models import Exchange
 from tap_polygon.client import PolygonRestStream
-from tap_polygon.utils import check_missing_fields
 import logging
 
 
@@ -80,39 +79,20 @@ class StockTickersStream(PolygonRestStream):
     def get_child_context(self, record, context):
         return {"ticker": record.get("ticker")}
 
-    def paginate_records(
-        self, url: str, params: dict[str, t.Any]
-    ) -> t.Iterable[dict[str, t.Any]]:
-        next_url = None
-        while True:
-            if next_url:
-                response = requests.get(next_url, params=params)
-            else:
-                response = requests.get(url, params=params)
-
-            response.raise_for_status()
-            data = response.json()
-
-            for record in data.get("results", []):
-                yield record
-
-            next_url = data.get("next_url")
-            if not next_url:
-                break
-
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_list = self.get_ticker_list()
         base_url = self.get_url()
 
         if not ticker_list:
             logging.info("Pulling all tickers...")
-            yield from self.paginate_records(base_url, self.get_query_params())
+            yield from self.paginate_records(base_url, self.query_params)
         else:
             logging.info(f"Pulling specific tickers: {ticker_list}")
             for ticker in ticker_list:
-                url = base_url  # we’ll pass ticker as a param instead of building it into the URL
-                params = self.get_query_params({"ticker": ticker})
-                yield from self.paginate_records(url, params)
+                url = base_url
+                query_params = self.query_params
+                query_params.update({"ticker": ticker})
+                yield from self.paginate_records(url, query_params)
 
 
 class CachedTickerProvider:
@@ -186,17 +166,17 @@ class TickerDetailsStream(PolygonRestStream):
         th.Property("currency_symbol", th.StringType, optional=True),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for record in ticker_records:
             ticker = record.get("ticker")
-            ticker_details = asdict(self.client.get_ticker_details(ticker))
-            check_missing_fields(self.schema, ticker_details)
-            yield ticker_details
+            url = f"{self.url_base}/v3/reference/tickers/{ticker}"
+            yield from self.paginate_records(url, self.query_params)
 
 
 class TickerTypesStream(PolygonRestStream):
@@ -214,7 +194,6 @@ class TickerTypesStream(PolygonRestStream):
         ticker_types = self.client.get_ticker_types()
         for ticker_type in ticker_types:
             tt = asdict(ticker_type)
-            check_missing_fields(self.schema, tt)
             yield tt
 
 
@@ -228,25 +207,17 @@ class RelatedCompaniesStream(PolygonRestStream):
         ),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            related_companies = self.client.get_related_companies(ticker)
-            related_list = [asdict(rc) for rc in related_companies]
-            for rc in related_list:
-                check_missing_fields(self.schema, rc)
-
-            related_companies_output = {
-                "ticker": ticker,
-                "related_companies": related_list,
-            }
-
-            yield related_companies_output
+        ticker_records = self.tap.get_cached_tickers()
+        for record in ticker_records:
+            ticker = record.get("ticker")
+            url = f"{self.url_base}/v1/related-companies/{ticker}"
+            yield from self.paginate_records(url, self.query_params)
 
 
 class CustomBarsStream(PolygonRestStream):
@@ -266,46 +237,21 @@ class CustomBarsStream(PolygonRestStream):
         th.Property("otc", th.BooleanType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
         self.parse_config_params()
 
     def build_path_params(self, path_params: dict) -> str:
         keys = ["multiplier", "timespan", "from", "to"]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
-    def get_records(
-        self, context: t.Optional[t.Dict[str, t.Any]] = None
-    ) -> t.Iterable[dict[str, t.Any]]:
-        custom_bars_url = f"{self.url_base}/v2/aggs/ticker/"
-
-        ticker_records = self.ticker_provider.get_tickers()
-
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record.get("ticker")
-            url = f"{custom_bars_url}{ticker}/range{self.build_path_params(self.path_params)}"
-
-            logging.info(
-                f"Streaming {self.path_params.get('multiplier')} {self.path_params.get('timespan')} bars for ticker {ticker}..."
-            )
-
-            for record in self.paginate_records(url, self.query_params):
-                mapped_record = {
-                    "ticker": ticker,
-                    "timestamp": record.get("t"),
-                    "open": record.get("o"),
-                    "high": record.get("h"),
-                    "low": record.get("l"),
-                    "close": record.get("c"),
-                    "volume": record.get("v"),
-                    "vwap": record.get("vw"),
-                    "transactions": record.get("n"),
-                    "otc": record.get("otc") if "otc" in record else None,
-                }
-
-                check_missing_fields(self.schema, mapped_record)
-                yield mapped_record
+            url = f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
+            yield from self.paginate_records(url, self.query_params, ticker=ticker)
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
@@ -362,9 +308,10 @@ class DailyTickerSummaryStream(PolygonRestStream):
         th.Property("status", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         config_params = self.config.get("daily_ticker_summary")
@@ -383,13 +330,12 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
         params["date"] = date
 
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             params["ticker"] = ticker
             ticker_summary = self.client.get_daily_open_close_agg(**params)
             ticker_summary = asdict(ticker_summary)
-            check_missing_fields(self.schema, ticker_summary)
             yield ticker_summary
 
 
@@ -477,7 +423,6 @@ class TopMarketMoversStream(PolygonRestStream):
             data = self.client.get_snapshot_direction(**params)
             for record in data:
                 record = asdict(record)
-                check_missing_fields(self.schema, record)
                 yield record
 
 
@@ -517,10 +462,10 @@ class TradeStream(PolygonRestStream):
         th.Property("trf_timestamp", th.NumberType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
-        self._ticker_records = self.ticker_provider.get_tickers()
+        self.tap = tap
+        self.parse_config_params()
 
     @property
     def partitions(self) -> list[dict]:
@@ -574,7 +519,6 @@ class TradeStream(PolygonRestStream):
 
         for trade in self.client.list_trades(**params):
             record = asdict(trade)
-            check_missing_fields(self.schema, record)
             increment_state(
                 state,
                 replication_key=self.replication_key,
@@ -610,7 +554,6 @@ class QuoteStream(TradeStream):
 
         for trade in self.client.list_quotes(**params):
             record = asdict(trade)
-            check_missing_fields(self.schema, record)
             increment_state(
                 state,
                 replication_key=self.replication_key,
@@ -626,9 +569,10 @@ class LastQuoteStream(QuoteStream):
 
 
 class IndicatorStream(PolygonRestStream):
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def _get_indicator_method(self):
         return f"get_{self.name}"
@@ -644,7 +588,7 @@ class IndicatorStream(PolygonRestStream):
         return params
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         base_params = self.get_params()
         params = base_params.copy()
         params.pop("tickers")
@@ -674,7 +618,6 @@ class IndicatorStream(PolygonRestStream):
                 flattened_records.append(flat_record)
 
             for fr in flattened_records:
-                check_missing_fields(self.schema, fr)
                 yield fr
 
 
@@ -777,7 +720,6 @@ class ExchangesStream(PolygonRestStream):
         exchanges = self.client.get_exchanges(**params)
 
         for record in exchanges:
-            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -806,7 +748,6 @@ class MarketHolidaysStream(PolygonRestStream):
         holidays = self.client.get_market_holidays(**params)
 
         for record in holidays:
-            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -852,12 +793,11 @@ class MarketStatusStream(PolygonRestStream):
             required=False,
         ),
         th.Property("market", th.StringType),
-        th.Property("serverTime", th.StringType),  # required by omission in docs
+        th.Property("serverTime", th.StringType),
     ).to_dict()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         market_status = self.client.get_market_status()
-        check_missing_fields(self.schema, record)
         yield asdict(market_status)
 
 
@@ -930,7 +870,6 @@ class ConditionCodesStream(PolygonRestStream):
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.list_conditions():
             record = asdict(record)
-            check_missing_fields(self.schema, record)
             yield record
 
 
@@ -975,7 +914,6 @@ class IPOsStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.vx.list_ipos():
-            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -998,7 +936,6 @@ class SplitsStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.list_splits(order="asc", sort="ticker"):
-            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -1016,7 +953,6 @@ class DividendsStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.list_dividends(order="asc", sort="ex_dividend_date"):
-            check_missing_fields(self.schema, record)
             yield asdict(record)
 
 
@@ -1043,16 +979,16 @@ class TickerEventsStream(PolygonRestStream):
         th.Property("composite_figi", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             record = asdict(self.client.get_ticker_events(ticker))
-            check_missing_fields(self.schema, record)
             yield record
 
 
@@ -1077,19 +1013,19 @@ class FinancialsStream(PolygonRestStream):
         th.Property("timeframe", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             for record in self.client.vx.list_stock_financials(
                 ticker=ticker, order="asc", sort="filing_date"
             ):
                 record = asdict(record)
-                check_missing_fields(self.schema, record)
                 yield record
 
 
@@ -1105,19 +1041,19 @@ class ShortInterestStream(PolygonRestStream):
         th.Property("ticker", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             for record in self.client.vx.list_short_interest(
                 ticker=ticker, order="asc", sort="ticker"
             ):
                 record = asdict(record)
-                check_missing_fields(self.schema, record)
                 yield record
 
 
@@ -1143,19 +1079,19 @@ class ShortVolumeStream(PolygonRestStream):
         th.Property("total_volume", th.IntegerType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             for record in self.client.vx.list_short_volume(
                 ticker=ticker, order="asc", sort="ticker"
             ):
                 record = asdict(record)
-                check_missing_fields(self.schema, record)
                 yield record
 
 
@@ -1195,17 +1131,17 @@ class NewsStream(PolygonRestStream):
         th.Property("title", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap, ticker_provider: CachedTickerProvider):
+    def __init__(self, tap):
         super().__init__(tap)
-        self.ticker_provider = ticker_provider
+        self.tap = tap
+        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.ticker_provider.get_tickers()
+        ticker_records = self.tap.get_cached_tickers()
         for ticker_record in ticker_records:
             ticker = ticker_record["ticker"]
             for record in self.client.list_ticker_news(
                 ticker=ticker, order="asc", sort="published_utc"
             ):
                 record = asdict(record)
-                check_missing_fields(self.schema, record)
                 yield record

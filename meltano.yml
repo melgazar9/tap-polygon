@@ -73,6 +73,9 @@ plugins:
         tickers:
           - AAPL
           - MSFT
+      ticker_details:
+        query_params:
+          date: "2025-01-07"
       custom_bars:
         - path_params:
             multiplier: 1
