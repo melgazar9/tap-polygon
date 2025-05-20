@@ -62,22 +62,22 @@ plugins:
     config:
       start_date: '2020-01-01T00:00:00Z'
       api_key: ${POLYGON_API_KEY}
+      base_url: https://api.polygon.io
 
       # The tickers that are set here persist across all streams that require a single stock ticker as input.
       # To run different tickers across different streams you need to call the tap N times,
       # where N is the number of distinct groups of ticker.
       stock_tickers:
         - AAPL
-        - MSFT
       custom_bars:
         - params:
             multiplier: 1
             timespan: "second"
-            from_: "2023-01-05"
+            from: "2023-01-05"
             to: "2023-01-06"
             adjusted: true
             sort: "asc"
-            limit: 100
+            limit: 50000
       daily_market_summary:
         - params:
             date: "2025-01-06"  # leave blank or set to "" to get current day

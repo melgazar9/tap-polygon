@@ -15,6 +15,13 @@ if t.TYPE_CHECKING:
     from singer_sdk.helpers.types import Context
 
 from polygon import RESTClient
+from singer_sdk.pagination import BaseHATEOASPaginator
+
+
+class PolygonAPIPaginator(BaseHATEOASPaginator):
+    def get_next_url(self, response: requests.Response) -> t.Optional[str]:
+        data = response.json()
+        return data.get("next_url")
 
 
 class PolygonRestStream(RESTStream):
@@ -26,4 +33,21 @@ class PolygonRestStream(RESTStream):
 
     @property
     def url_base(self) -> str:
-        return "https://api.polygon.io"
+        base_url = (
+            self.config.get("base_url")
+            if self.config.get("base_url") is not None
+            else "https://api.polygon.io"
+        )
+        return base_url
+
+    def get_new_paginator(self) -> PolygonAPIPaginator:
+        return PolygonAPIPaginator()
+
+    def get_url_params(
+        self,
+        context: t.Optional[t.Dict[str, t.Any]],
+        next_page_token: t.Optional[t.Any],
+    ) -> t.Union[dict[str, t.Any], str]:
+        if next_page_token:
+            return dict(parse_qsl(next_page_token.query))
+        return {}
