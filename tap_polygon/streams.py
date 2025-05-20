@@ -10,11 +10,13 @@ import pandas as pd
 from dataclasses import asdict
 import json
 from datetime import datetime, timezone
-import requests
 from singer_sdk.helpers._state import increment_state
+
+import requests
 from polygon.rest.models import Exchange
 from tap_polygon.client import PolygonRestStream
 from tap_polygon.utils import check_missing_fields
+import logging
 
 
 class StockTickersStream(PolygonRestStream):
@@ -43,34 +45,44 @@ class StockTickersStream(PolygonRestStream):
         th.Property("source_feed", th.StringType),
     ).to_dict()
 
-    def get_query_params(self, override: dict = None) -> dict:
-        base_params = self.config.get(self.name, {}).get("query_params", [{}])[0]
-        base_params["apiKey"] = self.config.get("api_key")
-        if override:
-            base_params.update(override)
-        return base_params
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.parse_config_params()
 
     def get_url(self) -> str:
         return f"{self.url_base}/v3/reference/tickers"
 
     def get_ticker_list(self) -> list[str] | None:
-        tickers = self.config.get("stock_tickers", {}).get("tickers")
-        if not tickers or tickers == ["*"] or tickers == "*":
+        stock_tickers_cfg = self.config.get("stock_tickers", {})
+        tickers = stock_tickers_cfg.get("tickers") if stock_tickers_cfg else None
+
+        if not tickers:
             return None
+
         if isinstance(tickers, str):
+            if tickers == "*":
+                return None
             try:
                 parsed = json.loads(tickers)
+                if parsed == ["*"]:
+                    return None
                 return parsed if isinstance(parsed, list) else [parsed]
             except json.JSONDecodeError:
                 return [tickers]
+
         if isinstance(tickers, list):
+            if tickers == ["*"]:
+                return None
             return tickers
         return None
 
     def get_child_context(self, record, context):
         return {"ticker": record.get("ticker")}
 
-    def paginate_records(self, url: str, params: dict[str, t.Any]) -> t.Iterable[dict[str, t.Any]]:
+    def paginate_records(
+        self, url: str, params: dict[str, t.Any]
+    ) -> t.Iterable[dict[str, t.Any]]:
         next_url = None
         while True:
             if next_url:
@@ -89,7 +101,6 @@ class StockTickersStream(PolygonRestStream):
                 break
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        self.validate_config()
         ticker_list = self.get_ticker_list()
         base_url = self.get_url()
 
@@ -105,14 +116,16 @@ class StockTickersStream(PolygonRestStream):
 
 
 class CachedTickerProvider:
-    def __init__(self, stream: StockTickersStream):
-        self.stream = stream
+    def __init__(self, tap: TapPolygon):
+        self.tap = tap
         self._tickers = None
 
     def get_tickers(self):
         if self._tickers is None:
-            logging.info("Tickers have not been downloaded yet. Downloading now...")
-            self._tickers = list(self.stream.get_records(context=None))
+            logging.info(
+                "Tickers have not been downloaded yet. Retrieving from tap cache..."
+            )
+            self._tickers = self.tap.get_cached_tickers()
         return self._tickers
 
 
@@ -256,70 +269,43 @@ class CustomBarsStream(PolygonRestStream):
     def __init__(self, tap, ticker_provider: CachedTickerProvider):
         super().__init__(tap)
         self.ticker_provider = ticker_provider
+        self.parse_config_params()
 
-        self.custom_bars_config = self.config.get("custom_bars")
-        if not self.custom_bars_config or len(self.custom_bars_config) != 1:
-            raise ConfigValidationError(
-                "Problem reading params for stream custom_bars."
-            )
-
-    def build_path_params(self, params: dict) -> str:
+    def build_path_params(self, path_params: dict) -> str:
         keys = ["multiplier", "timespan", "from", "to"]
-        return "/" + "/".join(str(params[k]) for k in keys if k in params)
-
-    def get_query_params(self, base_params: dict) -> dict:
-        keys = ["adjusted", "sort", "limit"]
-        query_params = {k: v for k, v in base_params.items() if k in keys}
-        query_params["apiKey"] = self.config.get("api_key")
-        return query_params
+        return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
     def get_records(
         self, context: t.Optional[t.Dict[str, t.Any]] = None
     ) -> t.Iterable[dict[str, t.Any]]:
-        base_params = self.custom_bars_config[0].get("params", {})
-        query_params = self.get_query_params(base_params)
+        custom_bars_url = f"{self.url_base}/v2/aggs/ticker/"
+
         ticker_records = self.ticker_provider.get_tickers()
 
         for ticker_record in ticker_records:
             ticker = ticker_record.get("ticker")
-
-            paginator = self.get_new_paginator()
-            next_url = None
-            url = f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(base_params)}"
+            url = f"{custom_bars_url}{ticker}/range{self.build_path_params(self.path_params)}"
 
             logging.info(
-                f"Streaming {base_params.get('multiplier')} {base_params.get('timespan')} bars for ticker {ticker}..."
+                f"Streaming {self.path_params.get('multiplier')} {self.path_params.get('timespan')} bars for ticker {ticker}..."
             )
 
-            while True:
-                if next_url:
-                    response = requests.get(next_url, params=query_params)
-                else:
-                    response = requests.get(url, params=query_params)
+            for record in self.paginate_records(url, self.query_params):
+                mapped_record = {
+                    "ticker": ticker,
+                    "timestamp": record.get("t"),
+                    "open": record.get("o"),
+                    "high": record.get("h"),
+                    "low": record.get("l"),
+                    "close": record.get("c"),
+                    "volume": record.get("v"),
+                    "vwap": record.get("vw"),
+                    "transactions": record.get("n"),
+                    "otc": record.get("otc") if "otc" in record else None,
+                }
 
-                response.raise_for_status()
-                data = response.json()
-
-                for record in data.get("results", []):
-                    mapped_record = {
-                        "ticker": ticker,
-                        "timestamp": record.get("t"),
-                        "open": record.get("o"),
-                        "high": record.get("h"),
-                        "low": record.get("l"),
-                        "close": record.get("c"),
-                        "volume": record.get("v"),
-                        "vwap": record.get("vw"),
-                        "transactions": record.get("n"),
-                        "otc": record.get("otc") if "otc" in record else None,
-                    }
-
-                    check_missing_fields(self.schema, mapped_record)
-                    yield mapped_record
-
-                next_url = paginator.get_next_url(response)
-                if not next_url:
-                    break
+                check_missing_fields(self.schema, mapped_record)
+                yield mapped_record
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
@@ -943,8 +929,9 @@ class ConditionCodesStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         for record in self.client.list_conditions():
+            record = asdict(record)
             check_missing_fields(self.schema, record)
-            yield asdict(record)
+            yield record
 
 
 class IPOsStream(PolygonRestStream):

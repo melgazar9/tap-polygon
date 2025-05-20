@@ -54,14 +54,20 @@ class TapPolygon(Tap):
     def get_cached_tickers(self) -> t.List[dict]:
         if self._cached_tickers is None:
             self.logger.info("Fetching and caching all stock tickers...")
-            stock_tickers_stream = StockTickersStream(self)
+            stock_tickers_stream = self.get_stock_tickers_stream()
             self._cached_tickers = list(stock_tickers_stream.get_records(context=None))
             self.logger.info(f"Cached {len(self._cached_tickers)} tickers.")
         return self._cached_tickers
 
+    def get_stock_tickers_stream(self) -> StockTickersStream:
+        if self._stock_tickers_stream_instance is None:
+            self.logger.info("Creating StockTickersStream instance...")
+            self._stock_tickers_stream_instance = StockTickersStream(self)
+        return self._stock_tickers_stream_instance
+
     def discover_streams(self) -> list[PolygonRestStream]:
-        stock_tickers_stream = StockTickersStream(self)
-        ticker_provider = CachedTickerProvider(stock_tickers_stream)
+        stock_tickers_stream = self.get_stock_tickers_stream()
+        ticker_provider = CachedTickerProvider(self)
 
         streams: list[PolygonRestStream] = [
             stock_tickers_stream,
