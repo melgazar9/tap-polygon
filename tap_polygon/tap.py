@@ -18,6 +18,13 @@ from tap_polygon.streams import (
     TradeStream,
     QuoteStream,
     SmaStream,
+    EmaStream,
+    MACDStream,
+    RSIStream,
+    ExchangesStream,
+    MarketHolidaysStream,
+    MarketStatusStream,
+    ConditionCodesStream,
 )
 
 
@@ -60,6 +67,13 @@ class TapPolygon(Tap):
             TradeStream(self, ticker_provider),
             QuoteStream(self, ticker_provider),
             SmaStream(self, ticker_provider),
+            EmaStream(self, ticker_provider),
+            MACDStream(self, ticker_provider),
+            RSIStream(self, ticker_provider),
+            ExchangesStream(self),
+            MarketHolidaysStream(self),
+            MarketStatusStream(self),
+            ConditionCodesStream(self),
         ]
 
         return streams

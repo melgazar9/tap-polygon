@@ -32,17 +32,24 @@ plugins:
       description: Initial date to start extracting data from
 
     select:
-    - stock_tickers.*
-    - ticker_details.*
-    - ticker_types.*
-    - related_companies.*
-    - custom_bars.*
-    - daily_market_summary.*
-    - daily_ticker_summary.*
-    - top_market_movers.*
-    - trades.*
-    - quotes.*
-    - sma.*
+      - stock_tickers.*
+      - ticker_details.*
+      - ticker_types.*
+      - related_companies.*
+      - custom_bars.*
+      - daily_market_summary.*
+      - daily_ticker_summary.*
+      - top_market_movers.*
+      - trades.*
+      - quotes.*
+      - sma.*
+      - ema.*
+      - macd.*
+      - rsi.*
+      - exchanges.*
+      - market_holidays.*
+      - market_status.*
+      - condition_codes.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'
@@ -97,6 +104,38 @@ plugins:
             timestamp_gte: "2025-01-01T00:00:00.999Z"
             timespan: minute
             window: 10
+            series_type: close
+            expand_underlying: true
+            tickers:
+              - AAPL
+              - META
+      ema:
+        - params:
+            timestamp_gte: "2025-01-01T00:00:00.999Z"
+            timespan: minute
+            window: 10
+            series_type: close
+            expand_underlying: true
+            tickers:
+              - AAPL
+              - META
+      macd:
+        - params:
+            timestamp_gte: "2025-01-01T00:00:00.999Z"
+            timespan: minute
+            short_window: 12
+            long_window: 26
+            signal_window: 10
+            series_type: close
+            expand_underlying: true
+            tickers:
+              - AAPL
+              - META
+      rsi:
+        - params:
+            timestamp_gte: "2025-01-01T00:00:00.999Z"
+            timespan: minute
+            window: 18
             series_type: close
             expand_underlying: true
             tickers:

@@ -12,6 +12,7 @@ from dataclasses import asdict
 import json
 from datetime import datetime, timezone
 
+from polygon.rest.models import Exchange
 from singer_sdk.helpers._state import increment_state
 from tap_polygon.utils import check_missing_fields
 
@@ -552,6 +553,9 @@ class IndicatorStream(PolygonRestStream):
         super().__init__(tap)
         self.ticker_provider = ticker_provider
 
+    def _get_indicator_method(self):
+        return f"get_{self.name}"
+
     def get_params(self) -> t.Iterable[dict[str, t.Any]]:
         cfg_params = self.config.get(self.name)
         if len(cfg_params) == 1 and "params" in cfg_params[0]:
@@ -560,31 +564,18 @@ class IndicatorStream(PolygonRestStream):
             raise ValueError(f"Must supply exactly one params object in the stream {self.name}.")
         return params
 
-class SmaStream(IndicatorStream):
-    name = "sma"
-    schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
-        th.Property("agg_open", th.NumberType),
-        th.Property("agg_high", th.NumberType),
-        th.Property("agg_low", th.NumberType),
-        th.Property("agg_close", th.NumberType),
-        th.Property("agg_volume", th.NumberType),
-        th.Property("agg_vwap", th.NumberType),
-        th.Property("agg_transactions", th.NumberType),
-        th.Property("agg_otc", th.BooleanType),
-    ).to_dict()
-
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.ticker_provider.get_tickers()
         base_params = self.get_params()
         params = base_params.copy()
         params.pop("tickers")
+
+        indicator_method = self._get_indicator_method()
+
         for ticker_record in ticker_records:
             ticker = ticker_record.get("ticker")
             params["ticker"] = ticker
-            record = self.client.get_sma(**params)
+            record = getattr(self.client, indicator_method)(**params)
             record = asdict(record)
             flattened_records = []
             aggregates_by_ts = {agg['timestamp']: agg for agg in record['underlying']['aggregates']}
@@ -604,3 +595,253 @@ class SmaStream(IndicatorStream):
             for fr in flattened_records:
                 check_missing_fields(self.schema, fr)
                 yield fr
+
+class SmaStream(IndicatorStream):
+    name = "sma"
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+        th.Property("agg_open", th.NumberType),
+        th.Property("agg_high", th.NumberType),
+        th.Property("agg_low", th.NumberType),
+        th.Property("agg_close", th.NumberType),
+        th.Property("agg_volume", th.NumberType),
+        th.Property("agg_vwap", th.NumberType),
+        th.Property("agg_transactions", th.NumberType),
+        th.Property("agg_otc", th.BooleanType),
+    ).to_dict()
+
+class EmaStream(IndicatorStream):
+    name = "ema"
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+        th.Property("agg_open", th.NumberType),
+        th.Property("agg_high", th.NumberType),
+        th.Property("agg_low", th.NumberType),
+        th.Property("agg_close", th.NumberType),
+        th.Property("agg_volume", th.NumberType),
+        th.Property("agg_vwap", th.NumberType),
+        th.Property("agg_transactions", th.NumberType),
+        th.Property("agg_otc", th.BooleanType),
+    ).to_dict()
+
+class MACDStream(IndicatorStream):
+    name = "macd"
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+        th.Property("agg_open", th.NumberType),
+        th.Property("agg_high", th.NumberType),
+        th.Property("agg_low", th.NumberType),
+        th.Property("agg_close", th.NumberType),
+        th.Property("agg_volume", th.NumberType),
+        th.Property("agg_vwap", th.NumberType),
+        th.Property("agg_transactions", th.NumberType),
+        th.Property("agg_otc", th.BooleanType),
+    ).to_dict()
+
+class RSIStream(IndicatorStream):
+    name = "rsi"
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+        th.Property("agg_open", th.NumberType),
+        th.Property("agg_high", th.NumberType),
+        th.Property("agg_low", th.NumberType),
+        th.Property("agg_close", th.NumberType),
+        th.Property("agg_volume", th.NumberType),
+        th.Property("agg_vwap", th.NumberType),
+        th.Property("agg_transactions", th.NumberType),
+        th.Property("agg_otc", th.BooleanType),
+    ).to_dict()
+
+
+class ExchangesStream(PolygonRestStream):
+    """ Fetch Exchanges """
+    name = "exchanges"
+    schema = th.PropertiesList(
+        th.Property("id", th.IntegerType),
+        th.Property("type", th.StringType),
+        th.Property("asset_class", th.StringType),
+        th.Property("locale", th.StringType),
+        th.Property("name", th.StringType),
+        th.Property("acronym", th.StringType),
+        th.Property("mic", th.StringType),
+        th.Property("operating_mic", th.StringType),
+        th.Property("participant_id", th.StringType),
+        th.Property("url", th.StringType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        config_params = self.config.get("exchanges")
+        if config_params is not None and len(config_params) == 1 and "params" in config_params[0]:
+            params = config_params[0]["params"]
+        else:
+            params = {}
+
+        exchanges = self.client.get_exchanges(**params)
+
+        for record in exchanges:
+            yield asdict(record)
+
+
+class MarketHolidaysStream(PolygonRestStream):
+    """ Market Holidays Stream (forward-looking) """
+    name = "market_holidays"
+    schema = th.PropertiesList(
+        th.Property("date", th.StringType),
+        th.Property("exchange", th.StringType),
+        th.Property("name", th.StringType),
+        th.Property("status", th.StringType),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        config_params = self.config.get("exchanges")
+        if config_params is not None and len(config_params) == 1 and "params" in config_params[0]:
+            params = config_params[0]["params"]
+        else:
+            params = {}
+
+        holidays = self.client.get_market_holidays(**params)
+
+        for record in holidays:
+            yield asdict(record)
+
+class MarketStatusStream(PolygonRestStream):
+    """ Market Status Stream """
+    name = "market_status"
+
+    schema = th.PropertiesList(
+        th.Property("afterHours", th.BooleanType, required=False),
+
+        th.Property(
+            "currencies",
+            th.ObjectType(
+                th.Property("crypto", th.StringType, required=False),
+                th.Property("fx", th.StringType, required=False),
+            ),
+            required=False,
+        ),
+
+        th.Property("earlyHours", th.BooleanType, required=False),
+
+        th.Property(
+            "exchanges",
+            th.ObjectType(
+                th.Property("nasdaq", th.StringType, required=False),
+                th.Property("nyse", th.StringType, required=False),
+                th.Property("otc", th.StringType, required=False),
+            ),
+            required=False,
+        ),
+
+        th.Property(
+            "indicesGroups",
+            th.ObjectType(
+                th.Property("cccy", th.StringType, required=False),
+                th.Property("cgi", th.StringType, required=False),
+                th.Property("dow_jones", th.StringType, required=False),
+                th.Property("ftse_russell", th.StringType, required=False),
+                th.Property("msci", th.StringType, required=False),
+                th.Property("mstar", th.StringType, required=False),
+                th.Property("mstarc", th.StringType, required=False),
+                th.Property("nasdaq", th.StringType, required=False),
+                th.Property("s_and_p", th.StringType, required=False),
+                th.Property("societe_generale", th.StringType, required=False),
+            ),
+            required=False,
+        ),
+
+        th.Property("market", th.StringType, required=False),
+        th.Property("serverTime", th.StringType),  # required by omission in docs
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        market_status = self.client.get_market_status()
+        yield asdict(market_status)
+
+class ConditionCodesStream(PolygonRestStream):
+    """ Condition Codes Stream """
+    name = "condition_codes"
+
+    schema = th.PropertiesList(
+        th.Property("abbreviation", th.StringType, required=False),
+
+        th.Property(
+            "asset_class",
+            th.StringType,
+            enum=["stocks", "options", "crypto", "fx"]
+        ),
+
+        th.Property("data_types", th.ArrayType(th.StringType)),
+
+        th.Property("description", th.StringType, required=False),
+
+        th.Property("exchange", th.IntegerType, required=False),
+
+        th.Property("id", th.IntegerType),
+
+        th.Property("legacy", th.BooleanType, required=False),
+
+        th.Property("name", th.StringType),
+
+        th.Property(
+            "sip_mapping",
+            th.ObjectType(
+                th.Property("CTA", th.StringType, required=False),
+                th.Property("OPRA", th.StringType, required=False),
+                th.Property("UTP", th.StringType, required=False),
+            )
+        ),
+
+        th.Property(
+            "type",
+            th.StringType,
+            enum=[
+                "sale_condition",
+                "quote_condition",
+                "sip_generated_flag",
+                "financial_status_indicator",
+                "short_sale_restriction_indicator",
+                "settlement_condition",
+                "market_condition",
+                "trade_thru_exempt",
+                "regular",
+                "buy_or_sell_side"
+            ]
+        ),
+
+        th.Property(
+            "update_rules",
+            th.ObjectType(
+                th.Property(
+                    "consolidated",
+                    th.ObjectType(
+                        th.Property("updates_high_low", th.BooleanType),
+                        th.Property("updates_open_close", th.BooleanType),
+                        th.Property("updates_volume", th.BooleanType),
+                    ),
+                    required=False
+                ),
+                th.Property(
+                    "market_center",
+                    th.ObjectType(
+                        th.Property("updates_high_low", th.BooleanType),
+                        th.Property("updates_open_close", th.BooleanType),
+                        th.Property("updates_volume", th.BooleanType),
+                    ),
+                    required=False
+                ),
+            ),
+            required=False
+        ),
+    ).to_dict()
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        for record in self.client.list_conditions():
+            yield asdict(record)
