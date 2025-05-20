@@ -14,9 +14,9 @@ if t.TYPE_CHECKING:
     import requests
     from singer_sdk.helpers.types import Context
 
-from polygon import RESTClient
 from singer_sdk.pagination import BaseHATEOASPaginator
-
+from singer_sdk.exceptions import ConfigValidationError
+from polygon import RESTClient
 
 class PolygonAPIPaginator(BaseHATEOASPaginator):
     def get_next_url(self, response: requests.Response) -> t.Optional[str]:
@@ -51,3 +51,13 @@ class PolygonRestStream(RESTStream):
         if next_page_token:
             return dict(parse_qsl(next_page_token.query))
         return {}
+
+    def validate_config(self):
+        query_params = self.config.get(self.name).get("query_params")
+        path_params = self.config.get(self.name).get("path_params")
+        if query_params is not None:
+            if len(query_params) != 1:
+                raise ConfigValidationError(f"Error validating query_params in config for {self.name}")
+        if path_params is not None:
+            if len(path_params) != 1:
+                raise ConfigValidationError(f"Error validating path_params config for {self.name}")

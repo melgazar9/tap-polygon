@@ -1,7 +1,7 @@
 """Stream type classes for tap-polygon."""
 
 from __future__ import annotations
-from singer_sdk.exceptions import ConfigValidationError
+
 import typing as t
 from importlib import resources
 from singer_sdk import typing as th
@@ -22,6 +22,7 @@ class StockTickersStream(PolygonRestStream):
 
     name = "stock_tickers"
     replication_key = "ticker"
+
     schema = th.PropertiesList(
         th.Property("cik", th.StringType),
         th.Property("ticker", th.StringType),
@@ -42,37 +43,65 @@ class StockTickersStream(PolygonRestStream):
         th.Property("source_feed", th.StringType),
     ).to_dict()
 
+    def get_query_params(self, override: dict = None) -> dict:
+        base_params = self.config.get(self.name, {}).get("query_params", [{}])[0]
+        base_params["apiKey"] = self.config.get("api_key")
+        if override:
+            base_params.update(override)
+        return base_params
+
+    def get_url(self) -> str:
+        return f"{self.url_base}/v3/reference/tickers"
+
+    def get_ticker_list(self) -> list[str] | None:
+        tickers = self.config.get("stock_tickers", {}).get("tickers")
+        if not tickers or tickers == ["*"] or tickers == "*":
+            return None
+        if isinstance(tickers, str):
+            try:
+                parsed = json.loads(tickers)
+                return parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                return [tickers]
+        if isinstance(tickers, list):
+            return tickers
+        return None
+
     def get_child_context(self, record, context):
         return {"ticker": record.get("ticker")}
 
+    def paginate_records(self, url: str, params: dict[str, t.Any]) -> t.Iterable[dict[str, t.Any]]:
+        next_url = None
+        while True:
+            if next_url:
+                response = requests.get(next_url, params=params)
+            else:
+                response = requests.get(url, params=params)
+
+            response.raise_for_status()
+            data = response.json()
+
+            for record in data.get("results", []):
+                yield record
+
+            next_url = data.get("next_url")
+            if not next_url:
+                break
+
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        tickers = ""
-        if "stock_tickers" in self.config.keys():
-            tickers = self.config.get("stock_tickers")
-            if isinstance(tickers, str):
-                tickers = json.loads(tickers)
-        if tickers == "":
+        self.validate_config()
+        ticker_list = self.get_ticker_list()
+        base_url = self.get_url()
+
+        if not ticker_list:
             logging.info("Pulling all tickers...")
-            for ticker in self.client.list_tickers(
-                active="true",
-                order="asc",
-                sort="ticker",
-            ):
-                ticker = asdict(ticker)
-                check_missing_fields(self.schema, ticker)
-                yield ticker
+            yield from self.paginate_records(base_url, self.get_query_params())
         else:
-            logging.info(f"Pulling tickers {tickers}...")
-            for t in tickers:
-                for ticker in self.client.list_tickers(
-                    active="true",
-                    order="asc",
-                    sort="ticker",
-                    ticker=t,
-                ):
-                    ticker = asdict(ticker)
-                    check_missing_fields(self.schema, ticker)
-                    yield ticker
+            logging.info(f"Pulling specific tickers: {ticker_list}")
+            for ticker in ticker_list:
+                url = base_url  # we’ll pass ticker as a param instead of building it into the URL
+                params = self.get_query_params({"ticker": ticker})
+                yield from self.paginate_records(url, params)
 
 
 class CachedTickerProvider:
