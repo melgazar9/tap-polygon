@@ -11,7 +11,7 @@ from dataclasses import asdict
 import json
 from datetime import datetime, timezone
 from singer_sdk.helpers._state import increment_state
-
+import re
 import requests
 from polygon.rest.models import Exchange
 from tap_polygon.client import PolygonRestStream
@@ -173,7 +173,7 @@ class TickerDetailsStream(PolygonRestStream):
 
         self._use_cached_tickers = True
 
-    def get_url_for_ticker(self, ticker):
+    def get_url(self, ticker):
         return f"{self.url_base}/v3/reference/tickers/{ticker}"
 
 
@@ -210,7 +210,7 @@ class RelatedCompaniesStream(PolygonRestStream):
 
         self._use_cached_tickers = True
 
-    def get_url_for_ticker(self, ticker):
+    def get_url(self, ticker):
         return f"{self.url_base}/v1/related-companies/{ticker}"
 
     @staticmethod
@@ -247,7 +247,7 @@ class CustomBarsStream(PolygonRestStream):
         keys = ["multiplier", "timespan", "from", "to"]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
-    def get_url_for_ticker(self, ticker):
+    def get_url(self, ticker):
         return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
 
     @staticmethod
@@ -293,7 +293,7 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
         self._use_cached_tickers = False
 
-    def get_url_for_ticker(self, ticker=None):
+    def get_url(self):
         date = self.path_params.get("date")
         if date is None:
             date = datetime.today().date().isoformat()
@@ -322,7 +322,7 @@ class DailyTickerSummaryStream(PolygonRestStream):
     name = "daily_ticker_summary"
     schema = th.PropertiesList(
         th.Property("symbol", th.StringType),
-        th.Property("from_", th.StringType),
+        th.Property("from", th.StringType),
         th.Property("open", th.NumberType),
         th.Property("high", th.NumberType),
         th.Property("low", th.NumberType),
@@ -339,30 +339,19 @@ class DailyTickerSummaryStream(PolygonRestStream):
         self.tap = tap
         self.parse_config_params()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        config_params = self.config.get("daily_ticker_summary")
+        self._use_cached_tickers = True
 
-        if len(config_params) == 1 and "params" in config_params[0]:
-            params = config_params[0]["params"]
-        else:
-            params = {}
-
-        if "date" in params:
-            date = params.get("date")
-            if date is None or date == "":
-                date = datetime.today().date().isoformat()
-        else:
+    def get_url(self, ticker):
+        date = self.path_params.get("date")
+        if date is None:
             date = datetime.today().date().isoformat()
+        return f"{self.url_base}/v1/open-close/{ticker}/{date}"
 
-        params["date"] = date
+    @staticmethod
+    def clean_record(record, ticker=None):
+        record['pre_market'] = record.pop('preMarket')
 
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            params["ticker"] = ticker
-            ticker_summary = self.client.get_daily_open_close_agg(**params)
-            ticker_summary = asdict(ticker_summary)
-            yield ticker_summary
+
 
 
 class PreviousDayBarSummaryStream(PolygonRestStream):
@@ -422,34 +411,54 @@ class TopMarketMoversStream(PolygonRestStream):
         th.Property("fair_market_value", th.BooleanType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        config_params = self.config.get("top_market_movers")
-        if len(config_params) == 1 and "params" in config_params[0]:
-            params = config_params[0]["params"]
-            if "market_type" not in params.keys():
-                params["market_type"] = "stocks"
-        else:
-            raise ConfigValidationError(
-                "Could not parse config properly for top_market_movers"
-            )
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self.parse_config_params()
 
+        self._use_cached_tickers = False
+
+    def get_url(self, direction):
+        return f"{self.url_base}/v2/snapshot/locale/us/markets/stocks/{direction}"
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         if (
-            params["direction"] == ""
-            or params["direction"].lower() == "both"
-            or "direction" not in params
+            self.path_params.get("direction") is None or
+                self.path_params.get("direction") == "" or
+                self.path_params.get("direction").lower() == "both" or
+                "direction" not in self.path_params
         ):
             for direction in ["gainers", "losers"]:
-                params["direction"] = direction
-                data = self.client.get_snapshot_direction(**params)
-                for record in data:
-                    record = asdict(record)
+                url = self.get_url(direction=direction)
+                data = requests.get(url, params=self.query_params)
+                for record in data.json().get("tickers"):
                     record["direction"] = direction
+                    self.clean_record(record)
                     yield record
         else:
-            data = self.client.get_snapshot_direction(**params)
-            for record in data:
-                record = asdict(record)
+            direction = self.path_params.get("direction")
+            url = self.get_url(direction=direction)
+            data = requests.get(url, params=self.query_params)
+            for record in data.json().get("tickers"):
+                record["direction"] = direction
+                self.clean_record(record)
                 yield record
+
+    @staticmethod
+    def clean_record(record: dict, **kwargs) -> dict:
+        def to_snake_case(s):
+            return re.sub(r'(?<!^)(?=[A-Z])', '_', s).lower()
+
+        def clean_keys(d):
+            keys = list(d.keys())
+            for key in keys:
+                value = d.pop(key)
+                new_key = to_snake_case(key)
+                if isinstance(value, dict):
+                    clean_keys(value)
+                d[new_key] = value
+
+        clean_keys(record)
 
 
 class TradeStream(PolygonRestStream):

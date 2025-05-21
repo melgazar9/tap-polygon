@@ -64,33 +64,30 @@ class PolygonRestStream(RESTStream):
             response.raise_for_status()
             data = response.json()
 
-            if "results" in data and isinstance(data["results"], list):
-                for record in data["results"]:
+            records = data.get("results", data)
+
+            if isinstance(records, list):
+                for record in records:
                     if self.DEBUG:
                         if self.name != "stock_tickers":
                             logging.debug("DEBUG")
-
-                    self.clean_record(record, **kwargs)  # must be done in-place
-
-                    # if self.name == "custom_bars":
-                    #     self.clean_custom_bars_record(record, ticker=kwargs.get("ticker"))
-                    # if self.name == "related_companies":
-                    #     self.clean_related_companies_record(record, ticker=kwargs.get("ticker"))
-
+                    self.clean_record(record, **kwargs)
                     check_missing_fields(self.schema, record)
                     yield record
-            elif "results" in data and isinstance(data["results"], dict):
-                check_missing_fields(self.schema, data["results"])
-                yield data["results"]
             else:
-                check_missing_fields(self.schema, data)
-                yield data
+                record = records
+                if self.DEBUG:
+                    if self.name != "stock_tickers":
+                        logging.debug("DEBUG")
+                self.clean_record(record, **kwargs)
+                check_missing_fields(self.schema, record)
+                yield record
 
             next_url = data.get("next_url")
             if not next_url:
                 break
 
-    def get_url_for_ticker(self, ticker):
+    def get_url(self, **kwargs):
         raise NotImplementedError(
             "Method get_url_for_ticker must be overridden in the stream class."
         )
@@ -143,14 +140,19 @@ class PolygonRestStream(RESTStream):
                 "The get_records method needs to know whether to use cached tickers."
             )
 
-        ticker_records = self.tap.get_cached_tickers()
-        for record in ticker_records:
-            ticker = record.get("ticker")
-            if self.DEBUG:
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
-            url = self.get_url_for_ticker(ticker=ticker)
-            yield from self.paginate_records(url, self.query_params, ticker=ticker)
+        if self._use_cached_tickers:
+            ticker_records = self.tap.get_cached_tickers()
+            for record in ticker_records:
+                ticker = record.get("ticker")
+                if self.DEBUG:
+                    if self.name != "stock_tickers":
+                        logging.debug("DEBUG")
+                url = self.get_url(ticker=ticker)
+                yield from self.paginate_records(url, self.query_params, ticker=ticker)
+        else:
+            url = self.get_url()
+            yield from self.paginate_records(url, self.query_params)
+
 
     def clean_record(self, record: dict, **kwargs) -> dict:
         return record
