@@ -36,7 +36,30 @@ class PolygonRestStream(RESTStream):
 
         self._use_cached_tickers = None
         self._clean_in_place = True
+        self.parse_config_params()
+
         self.DEBUG = True
+
+        self._cfg_start_timestamp_key = None
+        for param_source in ("query_params", "path_params"):
+            param_dict = getattr(self, param_source, None)
+            if param_dict:
+                if param_dict:
+                    for k, v in param_dict.items():
+                        if k in ("timestamp.gte", "from", "from_", "timestamp", "date"):
+                            self._cfg_start_timestamp_key = k
+                            self.cfg_starting_timestamp = v
+                        if k in ("timestamp.lte", "to", "to_"):
+                            self._cfg_end_timestamp_key = k
+                            self.cfg_ending_timestamp = v
+
+                if self._cfg_start_timestamp_key:
+                    break
+
+        if self._cfg_start_timestamp_key and not self.cfg_starting_timestamp:
+            raise ConfigValidationError(
+                f"For stream {self.name} the starting timestamp field '{self._cfg_start_timestamp_key}' is required."
+            )
 
     @property
     def url_base(self) -> str:
@@ -46,6 +69,15 @@ class PolygonRestStream(RESTStream):
             else "https://api.polygon.io"
         )
         return base_url
+
+    @staticmethod
+    def get_record_timestamp_key(record):
+        record_timestamp_key = None
+        for k in record.keys():
+            if k in ("timestamp", "date"):
+                record_timestamp_key = k
+                break
+        return record_timestamp_key
 
     def get_new_paginator(self) -> PolygonAPIPaginator:
         return PolygonAPIPaginator()
@@ -98,31 +130,73 @@ class PolygonRestStream(RESTStream):
             next_url = data.get("next_url")
             logging.info(f"*** NEXT URL {next_url}")
             logging.info(f"*** RECORD {record}")
-            logging.info(f"*** QUERY_PARAMS {self.query_params}")
-            if self.name == 'sma':
-                logging.info(f'*** LAST TIMESTAMP {datetime.utcfromtimestamp(record.get("timestamp") / 1000).isoformat()}')
 
-            if next_url and "timestamp" in record:
+            record_timestamp_key = self.get_record_timestamp_key(record)
+            if next_url and record_timestamp_key is not None and self._cfg_start_timestamp_key is not None:
                 if self.DEBUG and self.name != "stock_tickers":
                     logging.debug("DEBUG")
-                    logging.critical(f" *** {self.query_params.get('timestamp.gte')} *** ")
                 if isinstance(record, list):
-                    timestamps_seen = []
-                    for ts in record:
-                        timestamps_seen.append(ts)
+                    timestamps_seen = [
+                        r.get(timestamp_key)
+                        for r in record
+                        if r.get(timestamp_key) is not None
+                    ]
+                    if not timestamps_seen:
+                        logging.info(f"No valid timestamps found in record list for {self.name}. Breaking.")
+                        break
                     last_timestamp = max(timestamps_seen)
                 elif isinstance(record, dict):
-                    last_timestamp = record.get("timestamp")
+                    last_timestamp = record.get(record_timestamp_key)
+                    if last_timestamp is None:
+                        logging.warning(
+                            f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking.")
+                        break
                 else:
                     logging.info(f"No timestamps found in current batch for {self.name}. Breaking.")
                     break
 
-                last_ts_dt = datetime.utcfromtimestamp(last_timestamp / 1000).replace(tzinfo=timezone.utc)
-                cutoff_dt = datetime.fromisoformat(self.query_params.get("timestamp.gte").replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+                if isinstance(last_timestamp, int) and last_timestamp > 1e12:
+                    last_timestamp /= 1000
+
+                last_ts_dt = datetime.utcfromtimestamp(last_timestamp).replace(tzinfo=timezone.utc)
+
+                if self._cfg_start_timestamp_key is None:
+                    raise ConfigValidationError(f"For stream {self.name} you must provide a starting timestamp in meltano.yml.")
+
+                cutoff_dt = datetime.fromisoformat(self.cfg_starting_timestamp.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
 
                 if last_ts_dt < cutoff_dt:
+                    logging.info(
+                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_dt}). Breaking pagination.")
                     break
+
                 query_params = {"apiKey": self.query_params.get("apiKey")}
+
+            if next_url and record_timestamp_key is not None and hasattr(self, "_cfg_end_timestamp_key") and self._cfg_end_timestamp_key is not None:
+                if self.DEBUG and self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+
+                last_timestamp_for_to = record.get(record_timestamp_key) if isinstance(record, dict) else (
+                    max([r.get(record_timestamp_key) for r in record if
+                         r.get(record_timestamp_key) is not None]) if isinstance(record, list) and any(
+                        r.get(record_timestamp_key) is not None for r in record) else None)
+
+                if last_timestamp_for_to is None:
+                    logging.info(
+                        f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing.")
+                else:
+                    if isinstance(last_timestamp_for_to, int) and last_timestamp_for_to > 1e12:
+                        last_timestamp_for_to /= 1000
+
+                    last_ts_dt_for_to = datetime.utcfromtimestamp(last_timestamp_for_to).replace(tzinfo=timezone.utc)
+
+                    cutoff_to_dt_for_check = datetime.fromisoformat(
+                        self.cfg_ending_timestamp.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+
+                    if last_ts_dt_for_to > cutoff_to_dt_for_check:
+                        logging.info(
+                            f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to' timestamp ({cutoff_to_dt_for_check}). Stopping pagination.")
+                        break
 
             if not next_url:
                 if self.DEBUG and self.name != "stock_tickers":

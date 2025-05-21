@@ -48,8 +48,6 @@ class StockTickersStream(PolygonRestStream):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.parse_config_params()
-
     def get_url(self) -> str:
         return f"{self.url_base}/v3/reference/tickers"
 
@@ -115,61 +113,60 @@ class CachedTickerProvider:
 class TickerDetailsStream(PolygonRestStream):
     name = "ticker_details"
     schema = th.PropertiesList(
-        th.Property("active", th.BooleanType, optional=True),
+        th.Property("active", th.BooleanType),
         th.Property(
             "address",
             th.ObjectType(
-                th.Property("address1", th.StringType, optional=True),
-                th.Property("address2", th.StringType, optional=True),
-                th.Property("city", th.StringType, optional=True),
-                th.Property("postal_code", th.StringType, optional=True),
-                th.Property("state", th.StringType, optional=True),
+                th.Property("address1", th.StringType),
+                th.Property("address2", th.StringType),
+                th.Property("city", th.StringType),
+                th.Property("postal_code", th.StringType),
+                th.Property("state", th.StringType),
             ),
             optional=True,
         ),
         th.Property(
             "branding",
             th.ObjectType(
-                th.Property("icon_url", th.StringType, optional=True),
-                th.Property("logo_url", th.StringType, optional=True),
+                th.Property("icon_url", th.StringType),
+                th.Property("logo_url", th.StringType),
             ),
             optional=True,
         ),
-        th.Property("cik", th.StringType, optional=True),
-        th.Property("composite_figi", th.StringType, optional=True),
-        th.Property("currency_name", th.StringType, optional=True),
-        th.Property("delisted_utc", th.StringType, optional=True),
-        th.Property("description", th.StringType, optional=True),
-        th.Property("homepage_url", th.StringType, optional=True),
-        th.Property("list_date", th.StringType, optional=True),
-        th.Property("locale", th.StringType, optional=True),  # enum: "us", "global"
+        th.Property("cik", th.StringType),
+        th.Property("composite_figi", th.StringType),
+        th.Property("currency_name", th.StringType),
+        th.Property("delisted_utc", th.StringType),
+        th.Property("description", th.StringType),
+        th.Property("homepage_url", th.StringType),
+        th.Property("list_date", th.StringType),
+        th.Property("locale", th.StringType),  # enum: "us", "global"
         th.Property(
-            "market", th.StringType, optional=True
+            "market", th.StringType
         ),  # enum: "stocks", "crypto", "fx", "otc", "indices"
-        th.Property("market_cap", th.NumberType, optional=True),
-        th.Property("name", th.StringType, optional=True),
-        th.Property("phone_number", th.StringType, optional=True),
-        th.Property("primary_exchange", th.StringType, optional=True),
-        th.Property("round_lot", th.NumberType, optional=True),
-        th.Property("share_class_figi", th.StringType, optional=True),
-        th.Property("share_class_shares_outstanding", th.NumberType, optional=True),
-        th.Property("sic_code", th.StringType, optional=True),
-        th.Property("sic_description", th.StringType, optional=True),
-        th.Property("ticker", th.StringType, optional=True),
-        th.Property("ticker_root", th.StringType, optional=True),
-        th.Property("ticker_suffix", th.StringType, optional=True),
-        th.Property("total_employees", th.NumberType, optional=True),
-        th.Property("type", th.StringType, optional=True),
-        th.Property("weighted_shares_outstanding", th.NumberType, optional=True),
-        th.Property("base_currency_name", th.StringType, optional=True),
-        th.Property("base_currency_symbol", th.StringType, optional=True),
-        th.Property("currency_symbol", th.StringType, optional=True),
+        th.Property("market_cap", th.NumberType),
+        th.Property("name", th.StringType),
+        th.Property("phone_number", th.StringType),
+        th.Property("primary_exchange", th.StringType),
+        th.Property("round_lot", th.NumberType),
+        th.Property("share_class_figi", th.StringType),
+        th.Property("share_class_shares_outstanding", th.NumberType),
+        th.Property("sic_code", th.StringType),
+        th.Property("sic_description", th.StringType),
+        th.Property("ticker", th.StringType),
+        th.Property("ticker_root", th.StringType),
+        th.Property("ticker_suffix", th.StringType),
+        th.Property("total_employees", th.NumberType),
+        th.Property("type", th.StringType),
+        th.Property("weighted_shares_outstanding", th.NumberType),
+        th.Property("base_currency_name", th.StringType),
+        th.Property("base_currency_symbol", th.StringType),
+        th.Property("currency_symbol", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
 
@@ -206,7 +203,6 @@ class RelatedCompaniesStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
 
@@ -239,7 +235,6 @@ class CustomBarsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
 
@@ -289,7 +284,6 @@ class DailyMarketSummaryStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = False
 
@@ -337,7 +331,6 @@ class DailyTickerSummaryStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
 
@@ -414,7 +407,6 @@ class TopMarketMoversStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = False
 
@@ -491,7 +483,7 @@ class TradeStream(PolygonRestStream):
         th.Property("price", th.NumberType),
         th.Property("sequence_number", th.IntegerType),
         th.Property("sip_timestamp", th.IntegerType),
-        th.Property("size", th.IntegerType),
+        th.Property("size", th.NumberType),
         th.Property("tape", th.IntegerType),
         th.Property("trf_id", th.IntegerType),
         th.Property("trf_timestamp", th.NumberType),
@@ -501,7 +493,6 @@ class TradeStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
 
@@ -538,7 +529,7 @@ class TradeStream(PolygonRestStream):
         return start_timestamp_iso
 
     @staticmethod
-    def clean_record(record: dict) -> dict:
+    def clean_record(record: dict, ticker=None) -> dict:
         surrogate_key = ""
         if "exchange" in record:
             surrogate_key = f"{surrogate_key}_{record['exchange']}"
@@ -555,19 +546,19 @@ class QuoteStream(TradeStream):
     name = "quotes"
 
     schema = th.PropertiesList(
-        th.Property("ask_exchange", th.IntegerType, optional=True),
-        th.Property("ask_price", th.NumberType, optional=True),
-        th.Property("ask_size", th.NumberType, optional=True),
-        th.Property("bid_exchange", th.IntegerType, optional=True),
-        th.Property("bid_price", th.NumberType, optional=True),
-        th.Property("bid_size", th.NumberType, optional=True),
-        th.Property("conditions", th.ArrayType(th.IntegerType), optional=True),
-        th.Property("indicators", th.ArrayType(th.IntegerType), optional=True),
+        th.Property("ask_exchange", th.IntegerType),
+        th.Property("ask_price", th.NumberType),
+        th.Property("ask_size", th.NumberType),
+        th.Property("bid_exchange", th.IntegerType),
+        th.Property("bid_price", th.NumberType),
+        th.Property("bid_size", th.NumberType),
+        th.Property("conditions", th.ArrayType(th.IntegerType)),
+        th.Property("indicators", th.ArrayType(th.IntegerType)),
         th.Property("participant_timestamp", th.IntegerType),
         th.Property("sequence_number", th.IntegerType),
         th.Property("sip_timestamp", th.IntegerType),
-        th.Property("tape", th.IntegerType, optional=True),
-        th.Property("trf_timestamp", th.IntegerType, optional=True),
+        th.Property("tape", th.IntegerType),
+        th.Property("trf_timestamp", th.IntegerType),
     ).to_dict()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
@@ -601,7 +592,6 @@ class IndicatorStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
         self._use_cached_tickers = True
         self._clean_in_place = False
@@ -935,7 +925,6 @@ class TickerEventsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.tap.get_cached_tickers()
@@ -969,7 +958,6 @@ class FinancialsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.tap.get_cached_tickers()
@@ -997,7 +985,6 @@ class ShortInterestStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.tap.get_cached_tickers()
@@ -1035,7 +1022,6 @@ class ShortVolumeStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.tap.get_cached_tickers()
@@ -1087,7 +1073,6 @@ class NewsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-        self.parse_config_params()
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_records = self.tap.get_cached_tickers()
