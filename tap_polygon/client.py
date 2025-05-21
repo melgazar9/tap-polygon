@@ -34,7 +34,10 @@ class PolygonRestStream(RESTStream):
     def __init__(self, tap: TapBase):
         super().__init__(tap=tap)
         self.client = RESTClient(self.config["api_key"])
-        self.DEBUG = False
+
+        self._use_cached_tickers = None
+
+        self.DEBUG = True
 
     @property
     def url_base(self) -> str:
@@ -49,9 +52,9 @@ class PolygonRestStream(RESTStream):
         return PolygonAPIPaginator()
 
     def paginate_records(
-            self, url: str, query_params: dict[str, t.Any], **kwargs
+        self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
-        query_params_to_log = {k: v for k, v in query_params.items() if k != 'apiKey'}
+        query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
             f"Streaming {self.name} with query_params: {query_params_to_log}..."
         )
@@ -65,9 +68,15 @@ class PolygonRestStream(RESTStream):
                 for record in data["results"]:
                     if self.DEBUG:
                         if self.name != "stock_tickers":
-                            logging.info("Breakpoint")
-                    if self.name == "custom_bars":
-                        self.clean_custom_bars_record(record, ticker=kwargs.get("ticker"))
+                            logging.debug("DEBUG")
+
+                    self.clean_record(record, **kwargs)  # must be done in-place
+
+                    # if self.name == "custom_bars":
+                    #     self.clean_custom_bars_record(record, ticker=kwargs.get("ticker"))
+                    # if self.name == "related_companies":
+                    #     self.clean_related_companies_record(record, ticker=kwargs.get("ticker"))
+
                     check_missing_fields(self.schema, record)
                     yield record
             elif "results" in data and isinstance(data["results"], dict):
@@ -80,6 +89,11 @@ class PolygonRestStream(RESTStream):
             next_url = data.get("next_url")
             if not next_url:
                 break
+
+    def get_url_for_ticker(self, ticker):
+        raise NotImplementedError(
+            "Method get_url_for_ticker must be overridden in the stream class."
+        )
 
     def get_url_params(
         self,
@@ -123,22 +137,20 @@ class PolygonRestStream(RESTStream):
 
         self.query_params["apiKey"] = self.config.get("api_key")
 
-    @staticmethod
-    def clean_custom_bars_record(record, ticker):
-        rename_map = {
-            "t": "timestamp",
-            "o": "open",
-            "h": "high",
-            "l": "low",
-            "c": "close",
-            "v": "volume",
-            "vw": "vwap",
-            "n": "transactions",
-        }
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        if self._use_cached_tickers is None:
+            raise ValueError(
+                "The get_records method needs to know whether to use cached tickers."
+            )
 
-        for old_key, new_key in rename_map.items():
-            if old_key in record:
-                record[new_key] = record.pop(old_key)
+        ticker_records = self.tap.get_cached_tickers()
+        for record in ticker_records:
+            ticker = record.get("ticker")
+            if self.DEBUG:
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+            url = self.get_url_for_ticker(ticker=ticker)
+            yield from self.paginate_records(url, self.query_params, ticker=ticker)
 
-        record["ticker"] = ticker
-        record["otc"] = record.get("otc", None)
+    def clean_record(self, record: dict, **kwargs) -> dict:
+        return record

@@ -87,8 +87,9 @@ plugins:
             sort: "asc"
             limit: 50000
       daily_market_summary:
-        - params:
+        - path_params:
             date: "2025-01-06"  # leave blank or set to "" to get current day
+        - query_params:
             adjusted: true
             include_otc: true
       daily_ticker_summary:

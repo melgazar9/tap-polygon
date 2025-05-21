@@ -171,15 +171,14 @@ class TickerDetailsStream(PolygonRestStream):
         self.tap = tap
         self.parse_config_params()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for record in ticker_records:
-            ticker = record.get("ticker")
-            url = f"{self.url_base}/v3/reference/tickers/{ticker}"
-            yield from self.paginate_records(url, self.query_params)
+        self._use_cached_tickers = True
+
+    def get_url_for_ticker(self, ticker):
+        return f"{self.url_base}/v3/reference/tickers/{ticker}"
 
 
 class TickerTypesStream(PolygonRestStream):
+    """ TickerTypesStream - does not require pagination so use Polygon's RESTClient() to fetch the data."""
     name = "ticker_types"
     schema = th.PropertiesList(
         th.Property(
@@ -201,10 +200,7 @@ class RelatedCompaniesStream(PolygonRestStream):
     name = "related_companies"
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
-        th.Property(
-            "related_companies",
-            th.ArrayType(th.ObjectType(th.Property("ticker", th.StringType))),
-        ),
+        th.Property("related_company", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -212,12 +208,15 @@ class RelatedCompaniesStream(PolygonRestStream):
         self.tap = tap
         self.parse_config_params()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for record in ticker_records:
-            ticker = record.get("ticker")
-            url = f"{self.url_base}/v1/related-companies/{ticker}"
-            yield from self.paginate_records(url, self.query_params)
+        self._use_cached_tickers = True
+
+    def get_url_for_ticker(self, ticker):
+        return f"{self.url_base}/v1/related-companies/{ticker}"
+
+    @staticmethod
+    def clean_record(record: dict, ticker: str) -> None:
+        record["related_company"] = record["ticker"]
+        record["ticker"] = ticker
 
 
 class CustomBarsStream(PolygonRestStream):
@@ -242,16 +241,34 @@ class CustomBarsStream(PolygonRestStream):
         self.tap = tap
         self.parse_config_params()
 
+        self._use_cached_tickers = True
+
     def build_path_params(self, path_params: dict) -> str:
         keys = ["multiplier", "timespan", "from", "to"]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record.get("ticker")
-            url = f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
-            yield from self.paginate_records(url, self.query_params, ticker=ticker)
+    def get_url_for_ticker(self, ticker):
+        return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
+
+    @staticmethod
+    def clean_record(record, ticker) -> None:
+        rename_map = {
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+            "vw": "vwap",
+            "n": "transactions",
+        }
+
+        for old_key, new_key in rename_map.items():
+            if old_key in record:
+                record[new_key] = record.pop(old_key)
+
+        record["ticker"] = ticker
+        record["otc"] = record.get("otc", None)
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
@@ -269,27 +286,36 @@ class DailyMarketSummaryStream(PolygonRestStream):
         th.Property("otc", th.BooleanType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        config_params = self.config.get("daily_market_summary")
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self.parse_config_params()
 
-        if len(config_params) == 1 and "params" in config_params[0]:
-            params = config_params[0]["params"]
-        else:
-            params = {}
+        self._use_cached_tickers = False
 
-        if "date" in params:
-            date = params.get("date")
-            if date is None or date == "":
-                date = datetime.today().date().isoformat()
-        else:
+    def get_url_for_ticker(self, ticker=None):
+        date = self.path_params.get("date")
+        if date is None:
             date = datetime.today().date().isoformat()
+        return f"{self.url_base}/v2/aggs/grouped/locale/us/market/stocks/{date}"
 
-        params["date"] = date
-
-        data = self.client.get_grouped_daily_aggs(**params)
-
-        for record in data:
-            yield asdict(record)
+    @staticmethod
+    def clean_record(record, ticker=None):
+        mapping = {
+            "T": "ticker",
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+            "vw": "vwap",
+            "n": "transactions",
+            "otc": "otc",
+        }
+        for old_key, new_key in mapping.items():
+            if old_key in record:
+                record[new_key] = record.pop(old_key)
 
 
 class DailyTickerSummaryStream(PolygonRestStream):
