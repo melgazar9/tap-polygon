@@ -72,7 +72,6 @@ plugins:
           sort: ticker
         tickers:
           - AAPL
-          - MSFT
       ticker_details:
         query_params:
           date: "2025-01-07"
@@ -101,70 +100,61 @@ plugins:
             direction: "gainers"  # set to "" or "both" to get both directions
             include_otc: false
       trades:
-        - params:
-            timestamp_gte: "2025-05-19T12:56:00Z"
+        - query_params:
             sort: timestamp
             order: asc
-            tickers:
-              - AAPL
-              - META
+        - path_params:
+            timestamp.gte: "2025-05-19T12:56:00Z"
       quotes:
         - params:
-            timestamp_gte: "2025-05-19T12:56:00Z"
+            timestamp.gte: "2025-05-19T12:56:00Z"
             sort: timestamp
             order: asc
             tickers:
               - AAPL
               - META
       sma:
-        - params:
-            timestamp_gte: "2025-01-01T00:00:00.999Z"
-            timespan: minute
+        - query_params:
+            timestamp.gte: "2025-05-20T00:00:00.999Z"
+            order: asc
+            timespan: hour
             window: 10
             series_type: close
             expand_underlying: true
-            tickers:
-              - AAPL
-              - META
       ema:
-        - params:
-            timestamp_gte: "2025-01-01T00:00:00.999Z"
-            timespan: minute
+        - query_params:
+            timestamp.gte: "2025-05-20T00:00:00.999Z"
+            order: asc
+            timespan: hour
             window: 10
             series_type: close
             expand_underlying: true
-            tickers:
-              - AAPL
-              - META
       macd:
-        - params:
-            timestamp_gte: "2025-01-01T00:00:00.999Z"
-            timespan: minute
+        - query_params:
+            timestamp.gte: "2025-05-20T00:00:00.999Z"
+            order: asc
+            timespan: hour
             short_window: 12
             long_window: 26
             signal_window: 10
             series_type: close
             expand_underlying: true
-            tickers:
-              - AAPL
-              - META
       rsi:
-        - params:
-            timestamp_gte: "2025-01-01T00:00:00.999Z"
-            timespan: minute
+        - query_params:
+            timestamp.gte: "2025-05-20T00:00:00.999Z"
+            order: asc
+            timespan: hour
             window: 18
             series_type: close
             expand_underlying: true
-            tickers:
-              - AAPL
-              - META
+
     metadata:
       trades:
         replication-method: INCREMENTAL
-        replication-key: participant_timestamp
+        replication-key: replication_key
       quotes:
         replication-method: INCREMENTAL
-        replication-key: participant_timestamp
+        replication-key: replication_key
 
 
   loaders:

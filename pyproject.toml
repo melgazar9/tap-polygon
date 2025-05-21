@@ -14,7 +14,6 @@ singer-sdk = "~0.46.3"
 requests = "~2.32.3"
 fs-s3fs = { version = "~1.1.1", optional = true }
 polygon-api-client = "^1.14.5"
-pandas = "^2.2.3"
 
 [tool.poetry.extras]
 s3 = ["fs-s3fs"]

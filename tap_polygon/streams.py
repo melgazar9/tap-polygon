@@ -6,7 +6,6 @@ import typing as t
 from importlib import resources
 from singer_sdk import typing as th
 import logging
-import pandas as pd
 from dataclasses import asdict
 import json
 from datetime import datetime, timezone
@@ -16,6 +15,7 @@ import requests
 from polygon.rest.models import Exchange
 from tap_polygon.client import PolygonRestStream
 import logging
+import hashlib
 
 
 class StockTickersStream(PolygonRestStream):
@@ -42,6 +42,7 @@ class StockTickersStream(PolygonRestStream):
         th.Property("share_class_figi", th.StringType),
         th.Property("type", th.StringType),
         th.Property("source_feed", th.StringType),
+        th.Property("replication_key", th.StringType),
     ).to_dict()
 
     def __init__(self, *args, **kwargs):
@@ -82,15 +83,14 @@ class StockTickersStream(PolygonRestStream):
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         ticker_list = self.get_ticker_list()
         base_url = self.get_url()
-
+        query_params = self.query_params.copy()
         if not ticker_list:
             logging.info("Pulling all tickers...")
-            yield from self.paginate_records(base_url, self.query_params)
+            yield from self.paginate_records(base_url, query_params)
         else:
             logging.info(f"Pulling specific tickers: {ticker_list}")
             for ticker in ticker_list:
                 url = base_url
-                query_params = self.query_params
                 query_params.update({"ticker": ticker})
                 yield from self.paginate_records(url, query_params)
 
@@ -478,10 +478,10 @@ class TradeStream(PolygonRestStream):
     """
 
     name = "trades"
-    replication_key = "participant_timestamp"
+    replication_key = "replication_key"
     replication_method = "INCREMENTAL"
-    is_sorted = False  # Issue updating the incremental state
-    is_timestamp_replication_key = False  # It's technically true but set to False because the incremental key is in nanosecond epoch time.
+    is_sorted = False
+    is_timestamp_replication_key = False
     schema = th.PropertiesList(
         th.Property("conditions", th.ArrayType(th.AnyType())),
         th.Property("correction", th.AnyType()),
@@ -495,6 +495,7 @@ class TradeStream(PolygonRestStream):
         th.Property("tape", th.IntegerType),
         th.Property("trf_id", th.IntegerType),
         th.Property("trf_timestamp", th.NumberType),
+        th.Property("replication_key", th.StringType)
     ).to_dict()
 
     def __init__(self, tap):
@@ -502,11 +503,16 @@ class TradeStream(PolygonRestStream):
         self.tap = tap
         self.parse_config_params()
 
+        self._use_cached_tickers = True
+
     @property
     def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self._ticker_records]
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
-    def get_starting_timestamp(self, context: dict) -> int:
+    def get_url(self, ticker):
+        return f"{self.url_base}/v3/trades/{ticker}"
+
+    def get_starting_timestamp(self, context: dict) -> str:
         state = self.get_context_state(context)
 
         start_timestamp_cfg = self.config.get("start_date")
@@ -531,37 +537,18 @@ class TradeStream(PolygonRestStream):
 
         return start_timestamp_iso
 
-    def get_params(self, context):
-        if context is None or "ticker" not in context:
-            raise RuntimeError("Partition context must include a 'ticker'.")
-
-        ticker = context["ticker"]
-        trades_config = self.config.get("trades")
-        if len(trades_config) == 1 and "params" in trades_config[0]:
-            base_params = trades_config[0]["params"]
-        else:
-            raise ConfigValidationError("Could not parse config for trades stream.")
-
-        params = base_params.copy()
-        params.pop("tickers", None)
-        params["ticker"] = ticker
-        params["timestamp_gte"] = self.get_starting_timestamp(context)
-        return params
-
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        params = self.get_params(context)
-        state = self.get_context_state(context)
-
-        for trade in self.client.list_trades(**params):
-            record = asdict(trade)
-            increment_state(
-                state,
-                replication_key=self.replication_key,
-                latest_record=record,
-                is_sorted=self.is_sorted,
-                check_sorted=self.check_sorted,
-            )
-            yield record
+    @staticmethod
+    def clean_record(record: dict) -> dict:
+        surrogate_key = ""
+        if "exchange" in record:
+            surrogate_key = f"{surrogate_key}_{record['exchange']}"
+        if "trf_id" in record:
+            surrogate_key = f"{surrogate_key}_{record['trf_id']}"
+        if "id" in record:
+            surrogate_key = f"{surrogate_key}_{record['id']}"
+        if "participant_timestamp" in record:
+            surrogate_key = f"{surrogate_key}_{record['participant_timestamp']}"
+        record["replication_key"] = hashlib.sha256(surrogate_key.encode()).hexdigest()
 
 
 class QuoteStream(TradeStream):
@@ -604,124 +591,55 @@ class LastQuoteStream(QuoteStream):
 
 
 class IndicatorStream(PolygonRestStream):
+    schema = th.PropertiesList(
+        th.Property("timestamp", th.IntegerType),
+        th.Property("ticker", th.StringType),
+        th.Property("value", th.NumberType),
+        th.Property("url", th.StringType),
+    ).to_dict()
+
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
         self.parse_config_params()
 
-    def _get_indicator_method(self):
-        return f"get_{self.name}"
+        self._use_cached_tickers = True
+        self._clean_in_place = False
 
-    def get_params(self) -> t.Iterable[dict[str, t.Any]]:
-        cfg_params = self.config.get(self.name)
-        if len(cfg_params) == 1 and "params" in cfg_params[0]:
-            params = cfg_params[0].get("params")
-        else:
-            raise ValueError(
-                f"Must supply exactly one params object in the stream {self.name}."
-            )
-        return params
+    def base_indicator_url(self):
+        return f"{self.url_base}/v1/indicators"
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        base_params = self.get_params()
-        params = base_params.copy()
-        params.pop("tickers")
+    def get_url(self, ticker):
+        return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
-        indicator_method = self._get_indicator_method()
-
-        for ticker_record in ticker_records:
-            ticker = ticker_record.get("ticker")
-            params["ticker"] = ticker
-            record = getattr(self.client, indicator_method)(**params)
-            record = asdict(record)
-            flattened_records = []
-            aggregates_by_ts = {
-                agg["timestamp"]: agg for agg in record["underlying"]["aggregates"]
+    @staticmethod
+    def clean_record(record, ticker) -> list[dict]:
+        url = record.get("underlying", {}).get("url")
+        return [
+            {
+                "timestamp": entry["timestamp"],
+                "value": entry["value"],
+                "url": url,
+                "ticker": ticker
             }
-
-            for val in record["values"]:
-                ts = val["timestamp"]
-                agg = aggregates_by_ts.get(ts, {})
-                flat_record = {
-                    "timestamp": ts,
-                    "value": val["value"],
-                    "url": record["underlying"]["url"],
-                    # Add all aggregate fields with a prefix 'agg_'
-                    **{f"agg_{k}": v for k, v in agg.items() if k != "timestamp"},
-                }
-                flattened_records.append(flat_record)
-
-            for fr in flattened_records:
-                yield fr
+            for entry in record.get("values", [])
+        ]
 
 
 class SmaStream(IndicatorStream):
     name = "sma"
-    schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
-        th.Property("agg_open", th.NumberType),
-        th.Property("agg_high", th.NumberType),
-        th.Property("agg_low", th.NumberType),
-        th.Property("agg_close", th.NumberType),
-        th.Property("agg_volume", th.NumberType),
-        th.Property("agg_vwap", th.NumberType),
-        th.Property("agg_transactions", th.NumberType),
-        th.Property("agg_otc", th.BooleanType),
-    ).to_dict()
 
 
 class EmaStream(IndicatorStream):
     name = "ema"
-    schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
-        th.Property("agg_open", th.NumberType),
-        th.Property("agg_high", th.NumberType),
-        th.Property("agg_low", th.NumberType),
-        th.Property("agg_close", th.NumberType),
-        th.Property("agg_volume", th.NumberType),
-        th.Property("agg_vwap", th.NumberType),
-        th.Property("agg_transactions", th.NumberType),
-        th.Property("agg_otc", th.BooleanType),
-    ).to_dict()
 
 
 class MACDStream(IndicatorStream):
     name = "macd"
-    schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
-        th.Property("agg_open", th.NumberType),
-        th.Property("agg_high", th.NumberType),
-        th.Property("agg_low", th.NumberType),
-        th.Property("agg_close", th.NumberType),
-        th.Property("agg_volume", th.NumberType),
-        th.Property("agg_vwap", th.NumberType),
-        th.Property("agg_transactions", th.NumberType),
-        th.Property("agg_otc", th.BooleanType),
-    ).to_dict()
 
 
 class RSIStream(IndicatorStream):
     name = "rsi"
-    schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
-        th.Property("agg_open", th.NumberType),
-        th.Property("agg_high", th.NumberType),
-        th.Property("agg_low", th.NumberType),
-        th.Property("agg_close", th.NumberType),
-        th.Property("agg_volume", th.NumberType),
-        th.Property("agg_vwap", th.NumberType),
-        th.Property("agg_transactions", th.NumberType),
-        th.Property("agg_otc", th.BooleanType),
-    ).to_dict()
 
 
 class ExchangesStream(PolygonRestStream):

@@ -10,7 +10,6 @@ from singer_sdk.authenticators import APIKeyAuthenticator
 from singer_sdk.helpers.jsonpath import extract_jsonpath
 from singer_sdk.pagination import BaseAPIPaginator  # noqa: TC002
 from singer_sdk.streams import RESTStream
-
 if t.TYPE_CHECKING:
     import requests
     from singer_sdk.helpers.types import Context
@@ -20,7 +19,7 @@ from singer_sdk.pagination import BaseHATEOASPaginator
 from singer_sdk.exceptions import ConfigValidationError
 from polygon import RESTClient
 from tap_polygon.utils import check_missing_fields
-
+from datetime import datetime, timezone
 
 class PolygonAPIPaginator(BaseHATEOASPaginator):
     def get_next_url(self, response: requests.Response) -> t.Optional[str]:
@@ -36,7 +35,7 @@ class PolygonRestStream(RESTStream):
         self.client = RESTClient(self.config["api_key"])
 
         self._use_cached_tickers = None
-
+        self._clean_in_place = True
         self.DEBUG = True
 
     @property
@@ -54,6 +53,7 @@ class PolygonRestStream(RESTStream):
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
+        query_params = query_params.copy()
         query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
             f"Streaming {self.name} with query_params: {query_params_to_log}..."
@@ -71,7 +71,10 @@ class PolygonRestStream(RESTStream):
                     if self.DEBUG:
                         if self.name != "stock_tickers":
                             logging.debug("DEBUG")
-                    self.clean_record(record, **kwargs)
+                    if self._clean_in_place:
+                        self.clean_record(record, **kwargs)
+                    else:
+                        record = self.clean_record(record, **kwargs)
                     check_missing_fields(self.schema, record)
                     yield record
             else:
@@ -79,17 +82,56 @@ class PolygonRestStream(RESTStream):
                 if self.DEBUG:
                     if self.name != "stock_tickers":
                         logging.debug("DEBUG")
-                self.clean_record(record, **kwargs)
-                check_missing_fields(self.schema, record)
-                yield record
+                if self._clean_in_place:
+                    self.clean_record(record, **kwargs)
+                else:
+                    record = self.clean_record(record, **kwargs)
+                if isinstance(record, list):
+                    rs = record.copy()
+                    for record in rs:
+                        check_missing_fields(self.schema, record)
+                        yield record
+                else:
+                    check_missing_fields(self.schema, record)
+                    yield record
 
             next_url = data.get("next_url")
+            logging.info(f"*** NEXT URL {next_url}")
+            logging.info(f"*** RECORD {record}")
+            logging.info(f"*** QUERY_PARAMS {self.query_params}")
+            if self.name == 'sma':
+                logging.info(f'*** LAST TIMESTAMP {datetime.utcfromtimestamp(record.get("timestamp") / 1000).isoformat()}')
+
+            if next_url and "timestamp" in record:
+                if self.DEBUG and self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+                    logging.critical(f" *** {self.query_params.get('timestamp.gte')} *** ")
+                if isinstance(record, list):
+                    timestamps_seen = []
+                    for ts in record:
+                        timestamps_seen.append(ts)
+                    last_timestamp = max(timestamps_seen)
+                elif isinstance(record, dict):
+                    last_timestamp = record.get("timestamp")
+                else:
+                    logging.info(f"No timestamps found in current batch for {self.name}. Breaking.")
+                    break
+
+                last_ts_dt = datetime.utcfromtimestamp(last_timestamp / 1000).replace(tzinfo=timezone.utc)
+                cutoff_dt = datetime.fromisoformat(self.query_params.get("timestamp.gte").replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+
+                if last_ts_dt < cutoff_dt:
+                    break
+                query_params = {"apiKey": self.query_params.get("apiKey")}
+
             if not next_url:
+                if self.DEBUG and self.name != "stock_tickers":
+                    logging.info("*** SHOULD BREAK ***")
                 break
 
     def get_url(self, **kwargs):
         raise NotImplementedError(
-            "Method get_url_for_ticker must be overridden in the stream class."
+            "Method get_url must be overridden in the stream class."
         )
 
     def get_url_params(
