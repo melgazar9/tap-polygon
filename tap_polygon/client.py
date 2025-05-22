@@ -40,7 +40,7 @@ class PolygonRestStream(RESTStream):
         self._clean_in_place = True
         self.parse_config_params()
 
-        self.DEBUG = False
+        self.DEBUG = True
 
         self._cfg_start_timestamp_key = None
 
@@ -113,10 +113,23 @@ class PolygonRestStream(RESTStream):
             if k in (
                 "timestamp",
                 "date",
+                "last_updated",
                 "ex_dividend_date",
                 "record_date",
                 "declaration_date",
                 "pay_date",
+                "last_updated_utc",
+                "participant_timestamp",
+                "sip_timestamp",
+                "trf_timestamp",
+                "announced_date",
+                "listing_date",
+                "execution_date",
+                "filing_date",
+                "acceptance_datetime",
+                "end_date",
+                "settlement_date",
+                "published_utc"
             ):
                 record_timestamp_key = k
                 break
@@ -184,6 +197,7 @@ class PolygonRestStream(RESTStream):
             next_url = data.get("next_url")
 
             record_timestamp_key = self.get_record_timestamp_key(record)
+
             if (
                 next_url
                 and record_timestamp_key is not None
@@ -282,9 +296,17 @@ class PolygonRestStream(RESTStream):
                     ):
                         last_timestamp_for_to /= 1000
 
-                    last_ts_dt_for_to = datetime.utcfromtimestamp(
-                        last_timestamp_for_to
-                    ).replace(tzinfo=timezone.utc)
+                    if self.DEBUG and self.name != 'stock_tickers':
+                        logging.debug('yea')
+
+                    if isinstance(last_timestamp_for_to, (int, float)):
+                        last_ts_dt_for_to = datetime.utcfromtimestamp(
+                            last_timestamp_for_to
+                        ).replace(tzinfo=timezone.utc)
+                    elif isinstance(last_timestamp_for_to, str):
+                        last_ts_dt_for_to = datetime.fromisoformat(last_timestamp_for_to).replace(tzinfo=timezone.utc)
+                    else:
+                        raise ValueError("Could not parse last_ts_dt_for_to")
 
                     cutoff_to_dt_for_check = datetime.fromisoformat(
                         self.cfg_ending_timestamp.replace("Z", "+00:00")

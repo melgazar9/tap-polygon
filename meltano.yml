@@ -163,11 +163,10 @@ plugins:
             order: asc
       short_interest:
         - query_params:
-            settlement_date.gte: "2025-03-30"
-            order: asc
+            settlement_date.gte: "2025-03-01"
+            settlement_date.lt: "2025-03-15"
       short_volume:
         - query_params:
-            date.gte: "2025-03-01"
             order: asc
       news:
         - query_params:
