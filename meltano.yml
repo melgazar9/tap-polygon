@@ -92,10 +92,12 @@ plugins:
             adjusted: true
             include_otc: true
       daily_ticker_summary:
-        - params:
+        - path_params:
+            date: "2025-05-01"
+        - query_params:
             adjusted: true
       top_market_movers:
-        - params:
+        - query_params:
             direction: "gainers"  # set to "" or "both" to get both directions
             include_otc: false
       trades:
@@ -104,7 +106,7 @@ plugins:
             order: asc
             timestamp.gte: "2025-05-21T19:59:00Z"
       quotes:
-        - params:
+        - query_params:
             timestamp.gte: "2025-05-21T12:59:00Z"
             sort: timestamp
             order: asc

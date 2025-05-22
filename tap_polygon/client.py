@@ -35,7 +35,7 @@ class PolygonRestStream(RESTStream):
 
         self._cfg_start_timestamp_key = None
 
-        self.DEBUG = False
+        self.DEBUG = True
 
         timestamp_filter_fields = [
             "from",
@@ -90,6 +90,11 @@ class PolygonRestStream(RESTStream):
                 f"For stream {self.name} the starting timestamp field '{self._cfg_start_timestamp_key}' is required."
             )
 
+    def _debug(self):
+        if self.DEBUG and self.name != "stock_tickers":
+            logging.debug("DEBUG")
+        return
+
     @property
     def url_base(self) -> str:
         base_url = (
@@ -131,11 +136,27 @@ class PolygonRestStream(RESTStream):
     def get_new_paginator(self) -> PolygonAPIPaginator:
         return PolygonAPIPaginator()
 
+    @staticmethod
+    def _normalize_timestamp(ts):
+        if isinstance(ts, int):
+            if ts > 1e12:  # likely nanoseconds
+                return ts / 1e9
+            if ts > 1e9:  # likely microseconds
+                return ts / 1e6
+        return ts
+
+    @staticmethod
+    def _to_datetime(ts):
+        if isinstance(ts, (int, float)):
+            return datetime.utcfromtimestamp(ts).replace(tzinfo=timezone.utc)
+        if isinstance(ts, str):
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+        return
+
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
-        if self.DEBUG and self.name != "stock_tickers":
-            logging.debug("DEBUG")
+        self._debug()
         query_params = query_params.copy()
         query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
@@ -156,12 +177,13 @@ class PolygonRestStream(RESTStream):
                 records = data
                 if not data:
                     break
+            else:
+                logging.critical(f"*** Could not parse record for stream {self.name} ***")
+                break
 
             if isinstance(records, list):
                 for record in records:
-                    if self.DEBUG:
-                        if self.name != "stock_tickers":
-                            logging.debug("DEBUG")
+                    self._debug()
                     if self._clean_in_place:
                         self.clean_record(record, **kwargs)
                     else:
@@ -170,18 +192,16 @@ class PolygonRestStream(RESTStream):
                     yield record
             else:
                 record = records
-                if self.DEBUG:
-                    if self.name != "stock_tickers":
-                        logging.debug("DEBUG")
+                self._debug()
                 if self._clean_in_place:
                     self.clean_record(record, **kwargs)
                 else:
                     record = self.clean_record(record, **kwargs)
+
                 if isinstance(record, list):
-                    rs = record.copy()
-                    for record in rs:
+                    for r in record.copy():
                         check_missing_fields(self.schema, record)
-                        yield record
+                        yield r
                 else:
                     check_missing_fields(self.schema, record)
                     yield record
@@ -190,34 +210,24 @@ class PolygonRestStream(RESTStream):
                 break
 
             next_url = data.get("next_url")
-
             record_timestamp_key = self.get_record_timestamp_key(record)
 
-            if (
-                next_url
-                and record_timestamp_key is not None
-                and self._cfg_start_timestamp_key is not None
-            ):
-                if self.DEBUG and self.name != "stock_tickers":
-                    logging.debug("DEBUG")
+            if not next_url:
+                self._debug()
+                break
+
+            if record_timestamp_key and self._cfg_start_timestamp_key:
+                self._debug()
                 if isinstance(record, list):
-                    timestamps_seen = [
-                        r.get(record_timestamp_key)
-                        for r in record
-                        if r.get(record_timestamp_key) is not None
-                    ]
+                    timestamps_seen = [r.get(record_timestamp_key) for r in record if r.get(record_timestamp_key) is not None]
                     if not timestamps_seen:
-                        logging.info(
-                            f"No valid timestamps found in record list for {self.name}. Breaking."
-                        )
+                        logging.info(f"No valid timestamps found in record list for {self.name}. Breaking.")
                         break
                     last_timestamp = max(timestamps_seen)
                 elif isinstance(record, dict):
                     last_timestamp = record.get(record_timestamp_key)
                     if last_timestamp is None:
-                        logging.warning(
-                            f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking."
-                        )
+                        logging.warning(f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking.")
                         break
                 else:
                     logging.info(
@@ -225,35 +235,15 @@ class PolygonRestStream(RESTStream):
                     )
                     break
 
-                # if isinstance(last_timestamp, int) and last_timestamp > 1e12:
-                #     last_timestamp /= 1000
-
-                if (
-                    isinstance(last_timestamp, int) and last_timestamp > 1e12
-                ):  # Likely nanoseconds
-                    last_timestamp /= 1e9  # Convert to seconds
-                elif (
-                    isinstance(last_timestamp, int) and last_timestamp > 1e9
-                ):  # Likely microseconds
-                    last_timestamp /= 1e6  # Convert to seconds
-
-                if isinstance(last_timestamp, (int, float)):
-                    last_ts_dt = datetime.utcfromtimestamp(last_timestamp).replace(
-                        tzinfo=timezone.utc
-                    )
-                elif isinstance(last_timestamp, str):
-                    last_ts_dt = datetime.fromisoformat(
-                        last_timestamp.replace("Z", "+00:00")
-                    ).replace(tzinfo=timezone.utc)
+                last_timestamp = self._normalize_timestamp(last_timestamp)
+                last_ts_dt = self._to_datetime(last_timestamp)
 
                 if self._cfg_start_timestamp_key is None:
                     raise ConfigValidationError(
                         f"For stream {self.name} you must provide a starting timestamp in meltano.yml."
                     )
 
-                cutoff_dt = datetime.fromisoformat(
-                    self.cfg_starting_timestamp.replace("Z", "+00:00")
-                ).replace(tzinfo=timezone.utc)
+                cutoff_dt = self._to_datetime(self.cfg_starting_timestamp)
 
                 if last_ts_dt < cutoff_dt:
                     logging.info(
@@ -265,69 +255,34 @@ class PolygonRestStream(RESTStream):
                 query_params = {"apiKey": self.query_params.get("apiKey")}
 
             if (
-                next_url
-                and record_timestamp_key is not None
+                record_timestamp_key is not None
                 and hasattr(self, "_cfg_end_timestamp_key")
                 and self._cfg_end_timestamp_key is not None
             ):
-                if self.DEBUG and self.name != "stock_tickers":
-                    logging.debug("DEBUG")
+                self._debug()
 
-                last_timestamp_for_to = (
-                    record.get(record_timestamp_key)
-                    if isinstance(record, dict)
-                    else (
-                        max(
-                            [
-                                r.get(record_timestamp_key)
-                                for r in record
-                                if r.get(record_timestamp_key) is not None
-                            ]
-                        )
-                        if isinstance(record, list)
-                        and any(r.get(record_timestamp_key) is not None for r in record)
-                        else None
-                    )
-                )
+                if isinstance(record, dict):
+                    last_timestamp_for_to = record.get(record_timestamp_key)
+                elif isinstance(record, list):
+                    valid_ts = [r.get(record_timestamp_key) for r in record if r.get(record_timestamp_key) is not None]
+                    last_timestamp_for_to = max(valid_ts) if valid_ts else None
+                else:
+                    last_timestamp_for_to = None
 
                 if last_timestamp_for_to is None:
                     logging.info(
                         f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing."
                     )
                 else:
-                    # if (
-                    #     isinstance(last_timestamp_for_to, int)
-                    #     and last_timestamp_for_to > 1e12
-                    # ):
-                    #     last_timestamp_for_to /= 1000
-                    if (
-                        isinstance(last_timestamp_for_to, int)
-                        and last_timestamp_for_to > 1e12
-                    ):  # Likely nanoseconds
-                        last_timestamp_for_to /= 1e9  # Convert nanoseconds to seconds
-                    elif (
-                        isinstance(last_timestamp_for_to, int)
-                        and last_timestamp_for_to > 1e9
-                    ):  # Likely microseconds
-                        last_timestamp_for_to /= 1e6  # Convert microseconds to seconds
+                    last_timestamp_for_to = self._normalize_timestamp(last_timestamp_for_to)
+                    last_ts_dt_for_to = self._to_datetime(last_timestamp_for_to)
 
-                    if self.DEBUG and self.name != "stock_tickers":
-                        logging.debug("DEBUG")
+                    self._debug()
 
-                    if isinstance(last_timestamp_for_to, (int, float)):
-                        last_ts_dt_for_to = datetime.utcfromtimestamp(
-                            last_timestamp_for_to
-                        ).replace(tzinfo=timezone.utc)
-                    elif isinstance(last_timestamp_for_to, str):
-                        last_ts_dt_for_to = datetime.fromisoformat(
-                            last_timestamp_for_to
-                        ).replace(tzinfo=timezone.utc)
-                    else:
+                    if last_ts_dt_for_to is None:
                         raise ValueError("Could not parse last_ts_dt_for_to")
 
-                    cutoff_to_dt_for_check = datetime.fromisoformat(
-                        self.cfg_ending_timestamp.replace("Z", "+00:00")
-                    ).replace(tzinfo=timezone.utc)
+                    cutoff_to_dt_for_check = self._to_datetime(self.cfg_ending_timestamp)
 
                     if last_ts_dt_for_to > cutoff_to_dt_for_check:
                         logging.info(
@@ -337,8 +292,7 @@ class PolygonRestStream(RESTStream):
                         break
 
             if not next_url:
-                if self.DEBUG and self.name != "stock_tickers":
-                    logging.info("*** SHOULD BREAK ***")
+                self._debug()
                 break
 
     def get_url(self, **kwargs):
@@ -389,9 +343,7 @@ class PolygonRestStream(RESTStream):
             ticker_records = self.tap.get_cached_tickers()
             for record in ticker_records:
                 ticker = record.get("ticker")
-                if self.DEBUG:
-                    if self.name != "stock_tickers":
-                        logging.debug("DEBUG")
+                self._debug()
                 url = self.get_url(ticker=ticker)
                 yield from self.paginate_records(url, self.query_params, ticker=ticker)
         else:
