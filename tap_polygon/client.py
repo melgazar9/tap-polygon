@@ -134,6 +134,8 @@ class PolygonRestStream(RESTStream):
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
+        if self.DEBUG and self.name != "stock_tickers":
+            logging.debug("DEBUG")
         query_params = query_params.copy()
         query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
@@ -148,7 +150,7 @@ class PolygonRestStream(RESTStream):
 
             if isinstance(data, dict):
                 records = data.get("results", data)
-                if not data.get("results"):
+                if not data.get("results", data):
                     break
             elif isinstance(data, list):
                 records = data
@@ -223,8 +225,17 @@ class PolygonRestStream(RESTStream):
                     )
                     break
 
-                if isinstance(last_timestamp, int) and last_timestamp > 1e12:
-                    last_timestamp /= 1000
+                # if isinstance(last_timestamp, int) and last_timestamp > 1e12:
+                #     last_timestamp /= 1000
+
+                if (
+                    isinstance(last_timestamp, int) and last_timestamp > 1e12
+                ):  # Likely nanoseconds
+                    last_timestamp /= 1e9  # Convert to seconds
+                elif (
+                    isinstance(last_timestamp, int) and last_timestamp > 1e9
+                ):  # Likely microseconds
+                    last_timestamp /= 1e6  # Convert to seconds
 
                 if isinstance(last_timestamp, (int, float)):
                     last_ts_dt = datetime.utcfromtimestamp(last_timestamp).replace(
@@ -284,11 +295,21 @@ class PolygonRestStream(RESTStream):
                         f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing."
                     )
                 else:
+                    # if (
+                    #     isinstance(last_timestamp_for_to, int)
+                    #     and last_timestamp_for_to > 1e12
+                    # ):
+                    #     last_timestamp_for_to /= 1000
                     if (
                         isinstance(last_timestamp_for_to, int)
                         and last_timestamp_for_to > 1e12
-                    ):
-                        last_timestamp_for_to /= 1000
+                    ):  # Likely nanoseconds
+                        last_timestamp_for_to /= 1e9  # Convert nanoseconds to seconds
+                    elif (
+                        isinstance(last_timestamp_for_to, int)
+                        and last_timestamp_for_to > 1e9
+                    ):  # Likely microseconds
+                        last_timestamp_for_to /= 1e6  # Convert microseconds to seconds
 
                     if self.DEBUG and self.name != "stock_tickers":
                         logging.debug("DEBUG")

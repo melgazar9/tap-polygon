@@ -345,6 +345,7 @@ class DailyTickerSummaryStream(PolygonRestStream):
     @staticmethod
     def clean_record(record, ticker=None):
         record["pre_market"] = record.pop("preMarket")
+        record["after_hours"] = record.pop("afterHours")
 
 
 class PreviousDayBarSummaryStream(PolygonRestStream):
