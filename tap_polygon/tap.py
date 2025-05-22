@@ -2,38 +2,38 @@
 
 from __future__ import annotations
 
+import typing as t
+
 from singer_sdk import Tap
 from singer_sdk import typing as th
 
-from tap_polygon.streams import (
-    StockTickersStream,
-    CachedTickerProvider,
-    TickerDetailsStream,
-    TickerTypesStream,
-    RelatedCompaniesStream,
+from tap_polygon.streams import (  # CachedTickerProvider,; QuoteStream,; LastQuoteStream,
+    ConditionCodesStream,
     CustomBarsStream,
     DailyMarketSummaryStream,
     DailyTickerSummaryStream,
-    TopMarketMoversStream,
-    TradeStream,
-    QuoteStream,
-    LastQuoteStream,
-    SmaStream,
+    DividendsStream,
     EmaStream,
-    MACDStream,
-    RSIStream,
     ExchangesStream,
+    FinancialsStream,
+    IPOsStream,
+    MACDStream,
     MarketHolidaysStream,
     MarketStatusStream,
-    ConditionCodesStream,
-    IPOsStream,
-    SplitsStream,
-    DividendsStream,
-    TickerEventsStream,
-    FinancialsStream,
+    NewsStream,
+    PolygonRestStream,
+    RelatedCompaniesStream,
+    RSIStream,
     ShortInterestStream,
     ShortVolumeStream,
-    NewsStream,
+    SmaStream,
+    SplitsStream,
+    StockTickersStream,
+    TickerDetailsStream,
+    TickerEventsStream,
+    TickerTypesStream,
+    TopMarketMoversStream,
+    TradeStream,
 )
 
 

@@ -167,6 +167,7 @@ plugins:
             settlement_date.lt: "2025-03-15"
       short_volume:
         - query_params:
+            date.gte: "2025-05-20"
             order: asc
       news:
         - query_params:

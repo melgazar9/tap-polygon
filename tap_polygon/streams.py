@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import typing as t
-from importlib import resources
-from singer_sdk import typing as th
-import logging
-from dataclasses import asdict
-import json
-from datetime import datetime, timezone
-from singer_sdk.helpers._state import increment_state
-import re
-import requests
-from polygon.rest.models import Exchange
-from tap_polygon.client import PolygonRestStream
-import logging
 import hashlib
+import json
+import logging
+import re
+import typing as t
+from dataclasses import asdict
+from datetime import datetime, timezone
+
+import requests
+from singer_sdk import typing as th
+from singer_sdk.helpers.types import Context
+
+from tap_polygon.client import PolygonRestStream
 
 
 class StockTickersStream(PolygonRestStream):
@@ -78,7 +77,9 @@ class StockTickersStream(PolygonRestStream):
     def get_child_context(self, record, context):
         return {"ticker": record.get("ticker")}
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+    def get_records(
+        self, context: dict[str, t.Any] | None
+    ) -> t.Iterable[dict[str, t.Any]]:
         ticker_list = self.get_ticker_list()
         base_url = self.get_url()
         query_params = self.query_params.copy()
@@ -94,7 +95,7 @@ class StockTickersStream(PolygonRestStream):
 
 
 class CachedTickerProvider:
-    def __init__(self, tap: TapPolygon):
+    def __init__(self, tap):
         self.tap = tap
         self._tickers = None
 
@@ -347,14 +348,16 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
 
 class PreviousDayBarSummaryStream(PolygonRestStream):
-    """Retrieve the previous trading day's OHLCV data for a specified stock ticker. Not really useful given we have the other streams."""
+    """Retrieve the previous trading day's OHLCV data for a specified stock ticker.
+    Not really useful given we have the other streams."""
 
     name = "previous_day_bar"
     pass
 
 
 class TickerSnapshotStream(PolygonRestStream):
-    """Retrieve the most recent market data snapshot for a single ticker. Not really useful given we have the other streams."""
+    """Retrieve the most recent market data snapshot for a single ticker.
+    Not really useful given we have the other streams."""
 
     name = "ticker_snapshot"
     pass
@@ -362,8 +365,8 @@ class TickerSnapshotStream(PolygonRestStream):
 
 class FullMarketSnapshotStream(PolygonRestStream):
     """
-    Retrieve a comprehensive snapshot of the entire U.S. stock market, covering over 10,000+ actively traded tickers in a single response.
-    Not really useful given we have the other streams.
+    Retrieve a comprehensive snapshot of the entire U.S. stock market, covering over 10,000+ actively traded
+    tickers in a single response. Not really useful given we have the other streams.
     """
 
     name = "full_market_snapshot"
@@ -372,8 +375,8 @@ class FullMarketSnapshotStream(PolygonRestStream):
 
 class UnifiedSnapshotStream(PolygonRestStream):
     """
-    Retrieve unified snapshots of market data for multiple asset classes including stocks, options, forex, and cryptocurrencies in a single request.
-    Not really useful given we have the other streams.
+    Retrieve unified snapshots of market data for multiple asset classes including stocks, options, forex,
+    and cryptocurrencies in a single request. Not really useful given we have the other streams.
     """
 
     name = "unified_snapshot"
@@ -727,7 +730,9 @@ class MarketStatusStream(PolygonRestStream):
         th.Property("serverTime", th.StringType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+    def get_records(
+        self, context: dict[str, t.Any] | None
+    ) -> t.Iterable[dict[str, t.Any]]:
         market_status = self.client.get_market_status()
         yield asdict(market_status)
 

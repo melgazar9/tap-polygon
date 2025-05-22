@@ -3,24 +3,17 @@
 from __future__ import annotations
 
 import logging
-import decimal
 import typing as t
-from importlib import resources
-from singer_sdk.authenticators import APIKeyAuthenticator
-from singer_sdk.helpers.jsonpath import extract_jsonpath
-from singer_sdk.pagination import BaseAPIPaginator  # noqa: TC002
-from singer_sdk.streams import RESTStream
-
-if t.TYPE_CHECKING:
-    import requests
-    from singer_sdk.helpers.types import Context
+from datetime import datetime, timezone
 
 import requests
-from singer_sdk.pagination import BaseHATEOASPaginator
-from singer_sdk.exceptions import ConfigValidationError
 from polygon import RESTClient
+from singer_sdk.exceptions import ConfigValidationError
+from singer_sdk.helpers.types import Context
+from singer_sdk.pagination import BaseHATEOASPaginator
+from singer_sdk.streams import RESTStream
+
 from tap_polygon.utils import check_missing_fields
-from datetime import datetime, timezone
 
 
 class PolygonAPIPaginator(BaseHATEOASPaginator):
@@ -32,7 +25,7 @@ class PolygonAPIPaginator(BaseHATEOASPaginator):
 class PolygonRestStream(RESTStream):
     """Polygon rest API stream class."""
 
-    def __init__(self, tap: TapBase):
+    def __init__(self, tap):
         super().__init__(tap=tap)
         self.client = RESTClient(self.config["api_key"])
 
@@ -40,9 +33,9 @@ class PolygonRestStream(RESTStream):
         self._clean_in_place = True
         self.parse_config_params()
 
-        self.DEBUG = True
-
         self._cfg_start_timestamp_key = None
+
+        self.DEBUG = False
 
         timestamp_filter_fields = [
             "from",
@@ -129,7 +122,7 @@ class PolygonRestStream(RESTStream):
                 "acceptance_datetime",
                 "end_date",
                 "settlement_date",
-                "published_utc"
+                "published_utc",
             ):
                 record_timestamp_key = k
                 break
@@ -207,9 +200,9 @@ class PolygonRestStream(RESTStream):
                     logging.debug("DEBUG")
                 if isinstance(record, list):
                     timestamps_seen = [
-                        r.get(timestamp_key)
+                        r.get(record_timestamp_key)
                         for r in record
-                        if r.get(timestamp_key) is not None
+                        if r.get(record_timestamp_key) is not None
                     ]
                     if not timestamps_seen:
                         logging.info(
@@ -253,7 +246,8 @@ class PolygonRestStream(RESTStream):
 
                 if last_ts_dt < cutoff_dt:
                     logging.info(
-                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_dt}). Breaking pagination."
+                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_dt})."
+                        f"Breaking pagination."
                     )
                     break
 
@@ -296,15 +290,17 @@ class PolygonRestStream(RESTStream):
                     ):
                         last_timestamp_for_to /= 1000
 
-                    if self.DEBUG and self.name != 'stock_tickers':
-                        logging.debug('yea')
+                    if self.DEBUG and self.name != "stock_tickers":
+                        logging.debug("DEBUG")
 
                     if isinstance(last_timestamp_for_to, (int, float)):
                         last_ts_dt_for_to = datetime.utcfromtimestamp(
                             last_timestamp_for_to
                         ).replace(tzinfo=timezone.utc)
                     elif isinstance(last_timestamp_for_to, str):
-                        last_ts_dt_for_to = datetime.fromisoformat(last_timestamp_for_to).replace(tzinfo=timezone.utc)
+                        last_ts_dt_for_to = datetime.fromisoformat(
+                            last_timestamp_for_to
+                        ).replace(tzinfo=timezone.utc)
                     else:
                         raise ValueError("Could not parse last_ts_dt_for_to")
 
@@ -314,7 +310,8 @@ class PolygonRestStream(RESTStream):
 
                     if last_ts_dt_for_to > cutoff_to_dt_for_check:
                         logging.info(
-                            f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to' timestamp ({cutoff_to_dt_for_check}). Stopping pagination."
+                            f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to'"
+                            f"timestamp ({cutoff_to_dt_for_check}). Breaking pagination."
                         )
                         break
 
@@ -327,15 +324,6 @@ class PolygonRestStream(RESTStream):
         raise NotImplementedError(
             "Method get_url must be overridden in the stream class."
         )
-
-    def get_url_params(
-        self,
-        context: t.Optional[t.Dict[str, t.Any]],
-        next_page_token: t.Optional[t.Any],
-    ) -> t.Union[dict[str, t.Any], str]:
-        if next_page_token:
-            return dict(parse_qsl(next_page_token.query))
-        return {}
 
     def parse_config_params(self):
         cfg_params = self.config.get(self.name)
