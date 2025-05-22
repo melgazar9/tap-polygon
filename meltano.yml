@@ -103,11 +103,10 @@ plugins:
         - query_params:
             sort: timestamp
             order: asc
-        - path_params:
-            timestamp.gte: "2025-05-19T12:56:00Z"
+            timestamp.gte: "2025-05-21T19:59:00Z"
       quotes:
         - params:
-            timestamp.gte: "2025-05-19T12:56:00Z"
+            timestamp.gte: "2025-05-21T12:59:00Z"
             sort: timestamp
             order: asc
             tickers:
@@ -147,6 +146,33 @@ plugins:
             window: 18
             series_type: close
             expand_underlying: true
+      ipos:
+        - query_params:
+            listing_date.gte: "2025-05-15"
+      splits:
+        - query_params:
+            execution_date.gte: "2025-03-01"
+            order: asc
+      dividends:
+        - query_params:
+            ex_dividend_date.gte: "2025-05-01"
+            order: asc
+      financials:
+        - query_params:
+            filing_date.gte: "2025-05-01"
+            order: asc
+      short_interest:
+        - query_params:
+            settlement_date.gte: "2025-03-30"
+            order: asc
+      short_volume:
+        - query_params:
+            date.gte: "2025-03-01"
+            order: asc
+      news:
+        - query_params:
+            published_utc.gte: "2025-05-21"
+            order: asc
 
     metadata:
       trades:

@@ -175,7 +175,8 @@ class TickerDetailsStream(PolygonRestStream):
 
 
 class TickerTypesStream(PolygonRestStream):
-    """ TickerTypesStream - does not require pagination so use Polygon's RESTClient() to fetch the data."""
+    """TickerTypesStream - does not require pagination so use Polygon's RESTClient() to fetch the data."""
+
     name = "ticker_types"
     schema = th.PropertiesList(
         th.Property(
@@ -342,9 +343,7 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
     @staticmethod
     def clean_record(record, ticker=None):
-        record['pre_market'] = record.pop('preMarket')
-
-
+        record["pre_market"] = record.pop("preMarket")
 
 
 class PreviousDayBarSummaryStream(PolygonRestStream):
@@ -415,10 +414,10 @@ class TopMarketMoversStream(PolygonRestStream):
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         if (
-            self.path_params.get("direction") is None or
-                self.path_params.get("direction") == "" or
-                self.path_params.get("direction").lower() == "both" or
-                "direction" not in self.path_params
+            self.path_params.get("direction") is None
+            or self.path_params.get("direction") == ""
+            or self.path_params.get("direction").lower() == "both"
+            or "direction" not in self.path_params
         ):
             for direction in ["gainers", "losers"]:
                 url = self.get_url(direction=direction)
@@ -439,7 +438,7 @@ class TopMarketMoversStream(PolygonRestStream):
     @staticmethod
     def clean_record(record: dict, **kwargs) -> dict:
         def to_snake_case(s):
-            return re.sub(r'(?<!^)(?=[A-Z])', '_', s).lower()
+            return re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()
 
         def clean_keys(d):
             keys = list(d.keys())
@@ -487,7 +486,7 @@ class TradeStream(PolygonRestStream):
         th.Property("tape", th.IntegerType),
         th.Property("trf_id", th.IntegerType),
         th.Property("trf_timestamp", th.NumberType),
-        th.Property("replication_key", th.StringType)
+        th.Property("replication_key", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -544,7 +543,6 @@ class TradeStream(PolygonRestStream):
 
 class QuoteStream(TradeStream):
     name = "quotes"
-
     schema = th.PropertiesList(
         th.Property("ask_exchange", th.IntegerType),
         th.Property("ask_price", th.NumberType),
@@ -561,24 +559,31 @@ class QuoteStream(TradeStream):
         th.Property("trf_timestamp", th.IntegerType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        params = self.get_params(context)
-        state = self.get_context_state(context)
-
-        for trade in self.client.list_quotes(**params):
-            record = asdict(trade)
-            increment_state(
-                state,
-                replication_key=self.replication_key,
-                latest_record=record,
-                is_sorted=self.is_sorted,
-                check_sorted=self.check_sorted,
-            )
-            yield record
+    def get_url(self, ticker):
+        return f"{self.url_base}/v3/quotes/{ticker}"
 
 
 class LastQuoteStream(QuoteStream):
-    pass  # Need Advanced Subscription
+    name = "last_quote"
+    schema = th.PropertiesList(
+        th.Property("P", th.NumberType),
+        th.Property("S", th.IntegerType),
+        th.Property("T", th.StringType),
+        th.Property("X", th.IntegerType),
+        th.Property("c", th.ArrayType(th.IntegerType)),
+        th.Property("f", th.IntegerType),
+        th.Property("i", th.ArrayType(th.IntegerType)),
+        th.Property("p", th.NumberType),
+        th.Property("q", th.IntegerType),
+        th.Property("s", th.IntegerType),
+        th.Property("t", th.IntegerType),
+        th.Property("x", th.IntegerType),
+        th.Property("y", th.IntegerType),
+        th.Property("z", th.IntegerType),
+    ).to_dict()
+
+    def get_url(self, ticker):
+        return f"{self.url_base}/v2/last/nbbo/{ticker}"
 
 
 class IndicatorStream(PolygonRestStream):
@@ -610,7 +615,7 @@ class IndicatorStream(PolygonRestStream):
                 "timestamp": entry["timestamp"],
                 "value": entry["value"],
                 "url": url,
-                "ticker": ticker
+                "ticker": ticker,
             }
             for entry in record.get("values", [])
         ]
@@ -649,21 +654,13 @@ class ExchangesStream(PolygonRestStream):
         th.Property("url", th.StringType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        config_params = self.config.get("exchanges")
-        if (
-            config_params is not None
-            and len(config_params) == 1
-            and "params" in config_params[0]
-        ):
-            params = config_params[0]["params"]
-        else:
-            params = {}
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
 
-        exchanges = self.client.get_exchanges(**params)
-
-        for record in exchanges:
-            yield asdict(record)
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v3/reference/exchanges"
 
 
 class MarketHolidaysStream(PolygonRestStream):
@@ -671,27 +668,21 @@ class MarketHolidaysStream(PolygonRestStream):
 
     name = "market_holidays"
     schema = th.PropertiesList(
+        th.Property("close", th.StringType),
         th.Property("date", th.StringType),
         th.Property("exchange", th.StringType),
         th.Property("name", th.StringType),
+        th.Property("open", th.StringType),
         th.Property("status", th.StringType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        config_params = self.config.get("exchanges")
-        if (
-            config_params is not None
-            and len(config_params) == 1
-            and "params" in config_params[0]
-        ):
-            params = config_params[0]["params"]
-        else:
-            params = {}
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
 
-        holidays = self.client.get_market_holidays(**params)
-
-        for record in holidays:
-            yield asdict(record)
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v1/marketstatus/upcoming"
 
 
 class MarketStatusStream(PolygonRestStream):
@@ -707,7 +698,6 @@ class MarketStatusStream(PolygonRestStream):
                 th.Property("crypto", th.StringType),
                 th.Property("fx", th.StringType),
             ),
-            required=False,
         ),
         th.Property("earlyHours", th.BooleanType),
         th.Property(
@@ -717,7 +707,6 @@ class MarketStatusStream(PolygonRestStream):
                 th.Property("nyse", th.StringType),
                 th.Property("otc", th.StringType),
             ),
-            required=False,
         ),
         th.Property(
             "indicesGroups",
@@ -733,7 +722,6 @@ class MarketStatusStream(PolygonRestStream):
                 th.Property("s_and_p", th.StringType),
                 th.Property("societe_generale", th.StringType),
             ),
-            required=False,
         ),
         th.Property("market", th.StringType),
         th.Property("serverTime", th.StringType),
@@ -794,7 +782,6 @@ class ConditionCodesStream(PolygonRestStream):
                         th.Property("updates_open_close", th.BooleanType),
                         th.Property("updates_volume", th.BooleanType),
                     ),
-                    required=False,
                 ),
                 th.Property(
                     "market_center",
@@ -803,17 +790,18 @@ class ConditionCodesStream(PolygonRestStream):
                         th.Property("updates_open_close", th.BooleanType),
                         th.Property("updates_volume", th.BooleanType),
                     ),
-                    required=False,
                 ),
             ),
-            required=False,
         ),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        for record in self.client.list_conditions():
-            record = asdict(record)
-            yield record
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
+
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v3/reference/conditions"
 
 
 class IPOsStream(PolygonRestStream):
@@ -855,15 +843,43 @@ class IPOsStream(PolygonRestStream):
         th.Property("us_code", th.StringType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        for record in self.client.vx.list_ipos():
-            yield asdict(record)
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
+
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/vX/reference/ipos"
+
+    def clean_record(self, record: dict, ticker=None) -> dict:
+        record["ipo_status"] = record["ipo_status"].lower()
 
 
 class SplitsStream(PolygonRestStream):
     """Splits Stream"""
 
     name = "splits"
+    schema = th.PropertiesList(
+        th.Property("execution_date", th.StringType),
+        th.Property("id", th.StringType),
+        th.Property("split_from", th.NumberType),
+        th.Property("split_to", th.NumberType),
+        th.Property("ticker", th.StringType),
+    ).to_dict()
+
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
+
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v3/reference/splits"
+
+
+class DividendsStream(PolygonRestStream):
+    """Dividends Stream"""
+
+    name = "dividends"
     schema = th.PropertiesList(
         th.Property("cash_amount", th.NumberType),
         th.Property("currency", th.StringType),
@@ -877,26 +893,13 @@ class SplitsStream(PolygonRestStream):
         th.Property("ticker", th.StringType),
     ).to_dict()
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        for record in self.client.list_splits(order="asc", sort="ticker"):
-            yield asdict(record)
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+        self._use_cached_tickers = False
 
-
-class DividendsStream(PolygonRestStream):
-    """Dividends Stream"""
-
-    name = "dividends"
-    schema = th.PropertiesList(
-        th.Property("execution_date", th.StringType),
-        th.Property("id", th.StringType),
-        th.Property("split_from", th.NumberType),
-        th.Property("split_to", th.NumberType),
-        th.Property("ticker", th.StringType),
-    ).to_dict()
-
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        for record in self.client.list_dividends(order="asc", sort="ex_dividend_date"):
-            yield asdict(record)
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v3/reference/dividends"
 
 
 class TickerEventsStream(PolygonRestStream):
@@ -925,13 +928,22 @@ class TickerEventsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
+        self._use_cached_tickers = True
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            record = asdict(self.client.get_ticker_events(ticker))
-            yield record
+    def get_url(self, ticker):
+        return f"{self.url_base}/vX/reference/tickers/{ticker}/events"
+
+
+def _financial_metric_property(name: str):
+    return th.Property(
+        name,
+        th.ObjectType(
+            th.Property("label", th.StringType),
+            th.Property("order", th.IntegerType),
+            th.Property("unit", th.StringType),
+            th.Property("value", th.NumberType),
+        ),
+    )
 
 
 class FinancialsStream(PolygonRestStream):
@@ -944,7 +956,217 @@ class FinancialsStream(PolygonRestStream):
         th.Property("company_name", th.StringType),
         th.Property("end_date", th.StringType),
         th.Property("filing_date", th.StringType),
-        th.Property("financials", th.ObjectType(), required=True),
+        th.Property(
+            "financials",
+            th.ObjectType(
+                th.Property(
+                    "comprehensive_income",
+                    th.ObjectType(
+                        _financial_metric_property("comprehensive_income_loss"),
+                        _financial_metric_property("other_comprehensive_income_loss"),
+                        _financial_metric_property(
+                            "comprehensive_income_loss_attributable_to_parent"
+                        ),
+                        _financial_metric_property(
+                            "comprehensive_income_loss_attributable_to_noncontrolling_interest"
+                        ),
+                        _financial_metric_property(
+                            "other_comprehensive_income_loss_attributable_to_parent"
+                        ),
+                        _financial_metric_property(
+                            "other_comprehensive_income_loss_attributable_to_noncontrolling_interest"
+                        ),
+                        additional_properties=True,
+                    ),
+                ),
+                th.Property(
+                    "income_statement",
+                    th.ObjectType(
+                        _financial_metric_property("revenues"),
+                        _financial_metric_property("cost_of_revenue"),
+                        _financial_metric_property("gross_profit"),
+                        _financial_metric_property("operating_expenses"),
+                        _financial_metric_property("operating_income_loss"),
+                        _financial_metric_property(
+                            "income_loss_from_continuing_operations_before_tax"
+                        ),
+                        _financial_metric_property(
+                            "income_loss_from_continuing_operations_after_tax"
+                        ),
+                        _financial_metric_property("net_income_loss"),
+                        _financial_metric_property(
+                            "net_income_loss_attributable_to_parent"
+                        ),
+                        _financial_metric_property(
+                            "net_income_loss_attributable_to_noncontrolling_interest"
+                        ),
+                        _financial_metric_property(
+                            "net_income_loss_available_to_common_stockholders_basic"
+                        ),
+                        _financial_metric_property("basic_earnings_per_share"),
+                        _financial_metric_property("diluted_earnings_per_share"),
+                        _financial_metric_property("basic_average_shares"),
+                        _financial_metric_property("diluted_average_shares"),
+                        _financial_metric_property(
+                            "preferred_stock_dividends_and_other_adjustments"
+                        ),
+                        _financial_metric_property(
+                            "participating_securities_distributed_and_undistributed_earnings_loss_basic"
+                        ),
+                        _financial_metric_property("benefits_costs_expenses"),
+                        _financial_metric_property("depreciation_and_amortization"),
+                        _financial_metric_property(
+                            "income_tax_expense_benefit_current"
+                        ),
+                        _financial_metric_property("research_and_development"),
+                        _financial_metric_property("costs_and_expenses"),
+                        _financial_metric_property(
+                            "income_loss_from_equity_method_investments"
+                        ),
+                        _financial_metric_property(
+                            "income_tax_expense_benefit_deferred"
+                        ),
+                        _financial_metric_property("income_tax_expense_benefit"),
+                        _financial_metric_property("other_operating_expenses"),
+                        _financial_metric_property("interest_expense_operating"),
+                        _financial_metric_property(
+                            "income_loss_before_equity_method_investments"
+                        ),
+                        _financial_metric_property(
+                            "selling_general_and_administrative_expenses"
+                        ),
+                        _financial_metric_property(
+                            "income_loss_from_discontinued_operations_net_of_tax"
+                        ),
+                        _financial_metric_property("nonoperating_income_loss"),
+                        _financial_metric_property(
+                            "provision_for_loan_lease_and_other_losses"
+                        ),
+                        _financial_metric_property(
+                            "interest_income_expense_after_provision_for_losses"
+                        ),
+                        _financial_metric_property(
+                            "interest_income_expense_operating_net"
+                        ),
+                        _financial_metric_property("noninterest_income"),
+                        _financial_metric_property(
+                            "undistributed_earnings_loss_allocated_to_participating_securities_basic"
+                        ),
+                        _financial_metric_property(
+                            "net_income_loss_attributable_to_nonredeemable_noncontrolling_interest"
+                        ),
+                        _financial_metric_property("interest_and_debt_expense"),
+                        _financial_metric_property("other_operating_income_expenses"),
+                        _financial_metric_property(
+                            "net_income_loss_attributable_to_redeemable_noncontrolling_interest"
+                        ),
+                        _financial_metric_property(
+                            "income_loss_from_discontinued_operations_net_of_tax_during_phase_out"
+                        ),
+                        _financial_metric_property(
+                            "income_loss_from_discontinued_operations_net_of_tax_gain_loss_on_disposal"
+                        ),
+                        _financial_metric_property("common_stock_dividends"),
+                        _financial_metric_property(
+                            "interest_and_dividend_income_operating"
+                        ),
+                        _financial_metric_property("noninterest_expense"),
+                        _financial_metric_property(
+                            "income_loss_from_discontinued_operations_net_of_tax_provision_for_gain_loss_on_disposal"
+                        ),
+                        _financial_metric_property(
+                            "income_loss_from_discontinued_operations_net_of_tax_adjustment_to_prior_year_gain_loss_on_disposal"
+                        ),
+                    ),
+                ),
+                th.Property(
+                    "balance_sheet",
+                    th.ObjectType(
+                        _financial_metric_property("assets"),
+                        _financial_metric_property("current_assets"),
+                        _financial_metric_property("noncurrent_assets"),
+                        _financial_metric_property("liabilities"),
+                        _financial_metric_property("current_liabilities"),
+                        _financial_metric_property("noncurrent_liabilities"),
+                        _financial_metric_property("equity"),
+                        _financial_metric_property("equity_attributable_to_parent"),
+                        _financial_metric_property(
+                            "equity_attributable_to_noncontrolling_interest"
+                        ),
+                        _financial_metric_property("liabilities_and_equity"),
+                        _financial_metric_property("other_current_liabilities"),
+                        _financial_metric_property("wages"),
+                        _financial_metric_property("intangible_assets"),
+                        _financial_metric_property("prepaid_expenses"),
+                        _financial_metric_property("noncurrent_prepaid_expenses"),
+                        _financial_metric_property("fixed_assets"),
+                        _financial_metric_property("other_noncurrent_assets"),
+                        _financial_metric_property("other_current_assets"),
+                        _financial_metric_property("accounts_payable"),
+                        _financial_metric_property("long_term_debt"),
+                        _financial_metric_property("inventory"),
+                        _financial_metric_property("cash"),
+                        _financial_metric_property("commitments_and_contingencies"),
+                        _financial_metric_property("temporary_equity"),
+                        _financial_metric_property(
+                            "temporary_equity_attributable_to_parent"
+                        ),
+                        _financial_metric_property("accounts_receivable"),
+                        _financial_metric_property(
+                            "redeemable_noncontrolling_interest"
+                        ),
+                        _financial_metric_property(
+                            "redeemable_noncontrolling_interest_preferred"
+                        ),
+                        _financial_metric_property("interest_payable"),
+                        _financial_metric_property(
+                            "redeemable_noncontrolling_interest_other"
+                        ),
+                        _financial_metric_property(
+                            "redeemable_noncontrolling_interest_common"
+                        ),
+                        _financial_metric_property("long_term_investments"),
+                        _financial_metric_property("other_noncurrent_liabilities"),
+                    ),
+                ),
+                th.Property(
+                    "cash_flow_statement",
+                    th.ObjectType(
+                        _financial_metric_property("net_cash_flow"),
+                        _financial_metric_property("net_cash_flow_continuing"),
+                        _financial_metric_property(
+                            "net_cash_flow_from_operating_activities"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_operating_activities_continuing"
+                        ),
+                        _financial_metric_property("exchange_gains_losses"),
+                        _financial_metric_property(
+                            "net_cash_flow_from_financing_activities"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_operating_activities_discontinued"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_investing_activities_discontinued"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_investing_activities"
+                        ),
+                        _financial_metric_property("net_cash_flow_discontinued"),
+                        _financial_metric_property(
+                            "net_cash_flow_from_investing_activities_continuing"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_financing_activities_continuing"
+                        ),
+                        _financial_metric_property(
+                            "net_cash_flow_from_financing_activities_discontinued"
+                        ),
+                    ),
+                ),
+            ),
+        ),
         th.Property("fiscal_period", th.StringType),
         th.Property("fiscal_year", th.StringType),
         th.Property("sic", th.StringType),
@@ -958,16 +1180,10 @@ class FinancialsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
+        self._use_cached_tickers = False
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            for record in self.client.vx.list_stock_financials(
-                ticker=ticker, order="asc", sort="filing_date"
-            ):
-                record = asdict(record)
-                yield record
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/vX/reference/financials"
 
 
 class ShortInterestStream(PolygonRestStream):
@@ -985,16 +1201,10 @@ class ShortInterestStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
+        self._use_cached_tickers = False
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            for record in self.client.vx.list_short_interest(
-                ticker=ticker, order="asc", sort="ticker"
-            ):
-                record = asdict(record)
-                yield record
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/stocks/vX/short-interest"
 
 
 class ShortVolumeStream(PolygonRestStream):
@@ -1022,22 +1232,30 @@ class ShortVolumeStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
+        self._use_cached_tickers = False
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            for record in self.client.vx.list_short_volume(
-                ticker=ticker, order="asc", sort="ticker"
-            ):
-                record = asdict(record)
-                yield record
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/stocks/vX/short-volume"
 
 
 class NewsStream(PolygonRestStream):
     """News Stream"""
 
     name = "news"
+    publisher_schema = th.ObjectType(
+        th.Property("homepage_url", th.StringType),
+        th.Property("logo_url", th.StringType),
+        th.Property("name", th.StringType),
+        th.Property("favicon_url", th.StringType),
+    )
+
+    insight_schema = th.ObjectType(
+        th.Property("ticker", th.StringType),
+        th.Property("sentiment", th.StringType),
+        th.Property("sentiment_reasoning", th.StringType),
+        additional_properties=True,
+    )
+
     schema = th.PropertiesList(
         th.Property("amp_url", th.StringType),
         th.Property("article_url", th.StringType),
@@ -1045,27 +1263,10 @@ class NewsStream(PolygonRestStream):
         th.Property("description", th.StringType),
         th.Property("id", th.StringType),
         th.Property("image_url", th.StringType),
-        th.Property(
-            "insights",
-            th.ArrayType(
-                th.ObjectType(
-                    th.Property("sentiment", th.StringType),
-                    th.Property("sentiment_reasoning", th.StringType),
-                    th.Property("ticker", th.StringType),
-                    th.Property("keywords", th.ArrayType(th.StringType)),
-                )
-            ),
-        ),
+        th.Property("insights", th.ArrayType(insight_schema)),
+        th.Property("keywords", th.ArrayType(th.StringType)),
         th.Property("published_utc", th.StringType),
-        th.Property(
-            "publisher",
-            th.ObjectType(
-                th.Property("favicon_url", th.StringType),
-                th.Property("homepage_url", th.StringType),
-                th.Property("logo_url", th.StringType),
-                th.Property("name", th.StringType),
-            ),
-        ),
+        th.Property("publisher", publisher_schema),
         th.Property("tickers", th.ArrayType(th.StringType)),
         th.Property("title", th.StringType),
     ).to_dict()
@@ -1073,13 +1274,7 @@ class NewsStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
+        self._use_cached_tickers = False
 
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        ticker_records = self.tap.get_cached_tickers()
-        for ticker_record in ticker_records:
-            ticker = ticker_record["ticker"]
-            for record in self.client.list_ticker_news(
-                ticker=ticker, order="asc", sort="published_utc"
-            ):
-                record = asdict(record)
-                yield record
+    def get_url(self, ticker=None):
+        return f"{self.url_base}/v2/reference/news"
