@@ -150,7 +150,9 @@ class PolygonRestStream(RESTStream):
         if isinstance(ts, (int, float)):
             return datetime.utcfromtimestamp(ts).replace(tzinfo=timezone.utc)
         if isinstance(ts, str):
-            return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+            return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(
+                tzinfo=timezone.utc
+            )
         return
 
     def paginate_records(
@@ -178,7 +180,9 @@ class PolygonRestStream(RESTStream):
                 if not data:
                     break
             else:
-                logging.critical(f"*** Could not parse record for stream {self.name} ***")
+                logging.critical(
+                    f"*** Could not parse record for stream {self.name} ***"
+                )
                 break
 
             if isinstance(records, list):
@@ -219,15 +223,23 @@ class PolygonRestStream(RESTStream):
             if record_timestamp_key and self._cfg_start_timestamp_key:
                 self._debug()
                 if isinstance(record, list):
-                    timestamps_seen = [r.get(record_timestamp_key) for r in record if r.get(record_timestamp_key) is not None]
+                    timestamps_seen = [
+                        r.get(record_timestamp_key)
+                        for r in record
+                        if r.get(record_timestamp_key) is not None
+                    ]
                     if not timestamps_seen:
-                        logging.info(f"No valid timestamps found in record list for {self.name}. Breaking.")
+                        logging.info(
+                            f"No valid timestamps found in record list for {self.name}. Breaking."
+                        )
                         break
                     last_timestamp = max(timestamps_seen)
                 elif isinstance(record, dict):
                     last_timestamp = record.get(record_timestamp_key)
                     if last_timestamp is None:
-                        logging.warning(f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking.")
+                        logging.warning(
+                            f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking."
+                        )
                         break
                 else:
                     logging.info(
@@ -264,7 +276,11 @@ class PolygonRestStream(RESTStream):
                 if isinstance(record, dict):
                     last_timestamp_for_to = record.get(record_timestamp_key)
                 elif isinstance(record, list):
-                    valid_ts = [r.get(record_timestamp_key) for r in record if r.get(record_timestamp_key) is not None]
+                    valid_ts = [
+                        r.get(record_timestamp_key)
+                        for r in record
+                        if r.get(record_timestamp_key) is not None
+                    ]
                     last_timestamp_for_to = max(valid_ts) if valid_ts else None
                 else:
                     last_timestamp_for_to = None
@@ -274,7 +290,9 @@ class PolygonRestStream(RESTStream):
                         f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing."
                     )
                 else:
-                    last_timestamp_for_to = self._normalize_timestamp(last_timestamp_for_to)
+                    last_timestamp_for_to = self._normalize_timestamp(
+                        last_timestamp_for_to
+                    )
                     last_ts_dt_for_to = self._to_datetime(last_timestamp_for_to)
 
                     self._debug()
@@ -282,7 +300,9 @@ class PolygonRestStream(RESTStream):
                     if last_ts_dt_for_to is None:
                         raise ValueError("Could not parse last_ts_dt_for_to")
 
-                    cutoff_to_dt_for_check = self._to_datetime(self.cfg_ending_timestamp)
+                    cutoff_to_dt_for_check = self._to_datetime(
+                        self.cfg_ending_timestamp
+                    )
 
                     if last_ts_dt_for_to > cutoff_to_dt_for_check:
                         logging.info(
