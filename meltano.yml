@@ -1,11 +1,12 @@
 version: 1
 send_anonymous_usage_stats: true
 project_id: "tap-polygon"
+
 default_environment: test
-venv:
-  backend: uv
+
 environments:
 - name: test
+
 plugins:
   extractors:
   - name: "tap-polygon"
@@ -20,7 +21,7 @@ plugins:
     - stream-maps
 
     settings:
-    - name: api_key
+    - name: rest_api_key
       kind: password
       label: Polygon API Key
       description: Polygon.io API Key
@@ -61,7 +62,7 @@ plugins:
 
     config:
       start_date: '2020-01-01T00:00:00Z'
-      api_key: ${POLYGON_API_KEY}
+      rest_api_key: ${POLYGON_REST_API_KEY}
       base_url: https://api.polygon.io
 
       # The tickers that are set here persist across all streams that require a single stock ticker as input.
@@ -83,14 +84,14 @@ plugins:
             multiplier: 1
             timespan: "second"
             from: "2023-01-05"
-            to: "2023-01-09"
+            to: "2023-01-15"
         - query_params:
             adjusted: true
             sort: "asc"
-            limit: 50000
+            limit: 5000
       daily_market_summary:
         - path_params:
-            date: "2025-05-21"  # leave blank or set to "" to get current day
+            date: "2025-05-20"  # leave blank or set to "" to get current day
         - query_params:
             adjusted: true
             include_otc: true

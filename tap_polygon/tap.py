@@ -42,7 +42,7 @@ class TapPolygon(Tap):
 
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "api_key",
+            "rest_api_key",
             th.StringType,
             required=True,
             secret=True,

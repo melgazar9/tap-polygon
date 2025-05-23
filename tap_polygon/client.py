@@ -28,7 +28,7 @@ class PolygonRestStream(RESTStream):
 
     def __init__(self, tap):
         super().__init__(tap=tap)
-        self.client = RESTClient(self.config["api_key"])
+        self.client = RESTClient(self.config["rest_api_key"])
 
         self._use_cached_tickers = None
         self._clean_in_place = True
@@ -36,11 +36,13 @@ class PolygonRestStream(RESTStream):
 
         self._cfg_start_timestamp_key = None
 
-        self.DEBUG = False
+        self.DEBUG = True
 
-        timestamp_filter_fields = [
+        self.timestamp_filter_fields = [
             "from",
             "from_",
+            "to",
+            "to_",
             "date",
             "timestamp",
             "ex_dividend_date",
@@ -55,30 +57,77 @@ class PolygonRestStream(RESTStream):
             "published_utc",
         ]
 
+        self.record_timestamp_keys = [
+            "timestamp",
+            "date",
+            "last_updated",
+            "ex_dividend_date",
+            "record_date",
+            "declaration_date",
+            "pay_date",
+            "last_updated_utc",
+            "participant_timestamp",
+            "sip_timestamp",
+            "trf_timestamp",
+            "announced_date",
+            "listing_date",
+            "execution_date",
+            "filing_date",
+            "acceptance_datetime",
+            "end_date",
+            "settlement_date",
+            "published_utc",
+        ]
+
         timestamp_filter_suffixes = ["gt", "gte", "lt", "lte"]
 
-        combinations = timestamp_filter_fields + [
+        self.timestamp_field_combos = self.timestamp_filter_fields + [
             f"{field}.{suffix}"
-            for field in timestamp_filter_fields
+            for field in self.timestamp_filter_fields
             for suffix in timestamp_filter_suffixes
         ]
+
+        self.non_date_query_params = {
+            k: v
+            for k, v in self.query_params.items()
+            if k.lower() not in self.timestamp_filter_fields
+        }
+
+        if self.DEBUG and self.name != "stock_tickers":
+            logging.debug("DEBUG")
+
+        disallowed_start_keys = {"to", "to_"}
+        disallowed_end_keys = {"from", "from_"}
 
         for param_source in ("query_params", "path_params"):
             param_dict = getattr(self, param_source, None)
             if param_dict:
                 for k, v in param_dict.items():
-                    if k in [
-                        i
-                        for i in combinations
-                        if not i.endswith(".lt") and not i.endswith(".lte")
-                    ]:
+                    base_key = k.split(".")[0]
+
+                    # Starting timestamp (gt/gte), disallow "to" and "to_"
+                    if (
+                        k
+                        in [
+                            i
+                            for i in self.timestamp_field_combos
+                            if not i.endswith(".lt") and not i.endswith(".lte")
+                        ]
+                        and base_key not in disallowed_start_keys
+                    ):
                         self._cfg_start_timestamp_key = k
                         self.cfg_starting_timestamp = v
-                    if k in [
-                        i
-                        for i in combinations
-                        if not i.endswith(".gt") and not i.endswith(".gte")
-                    ]:
+
+                    # Ending timestamp (lt/lte), disallow "from" and "from_"
+                    if (
+                        k
+                        in [
+                            i
+                            for i in self.timestamp_field_combos
+                            if not i.endswith(".gt") and not i.endswith(".gte")
+                        ]
+                        and base_key not in disallowed_end_keys
+                    ):
                         self._cfg_end_timestamp_key = k
                         self.cfg_ending_timestamp = v
 
@@ -99,31 +148,10 @@ class PolygonRestStream(RESTStream):
         )
         return base_url
 
-    @staticmethod
-    def get_record_timestamp_key(record):
+    def get_record_timestamp_key(self, record):
         record_timestamp_key = None
         for k in record.keys():
-            if k in (
-                "timestamp",
-                "date",
-                "last_updated",
-                "ex_dividend_date",
-                "record_date",
-                "declaration_date",
-                "pay_date",
-                "last_updated_utc",
-                "participant_timestamp",
-                "sip_timestamp",
-                "trf_timestamp",
-                "announced_date",
-                "listing_date",
-                "execution_date",
-                "filing_date",
-                "acceptance_datetime",
-                "end_date",
-                "settlement_date",
-                "published_utc",
-            ):
+            if k in self.record_timestamp_keys:
                 record_timestamp_key = k
                 break
         return record_timestamp_key
@@ -133,11 +161,13 @@ class PolygonRestStream(RESTStream):
 
     @staticmethod
     def _normalize_timestamp(ts):
-        if isinstance(ts, int):
-            if ts > 1e12:  # likely nanoseconds
+        if isinstance(ts, (int, float)):
+            if ts > 1e15:  # nanoseconds
                 return ts / 1e9
-            if ts > 1e9:  # likely microseconds
+            if ts > 1e13:  # microseconds
                 return ts / 1e6
+            if ts > 1e10:  # milliseconds
+                return ts / 1e3
         return ts
 
     @staticmethod
@@ -149,21 +179,26 @@ class PolygonRestStream(RESTStream):
                 tzinfo=timezone.utc
             )
 
+    def _update_query_params(self, query_params):
+        query_params = {
+            k: v
+            for k, v in query_params.items()
+            if k not in self.timestamp_field_combos
+        }
+        return query_params
+
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
-        if self.name != "stock_tickers":
-            logging.debug("DEBUG")
-
         query_params = query_params.copy()
         query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
             f"Streaming {self.name} with query_params: {query_params_to_log}..."
         )
+
         next_url = None
         while True:
             response = requests.get(next_url or url, params=query_params)
-            response.raise_for_status()
 
             data = response.json()
 
@@ -216,6 +251,11 @@ class PolygonRestStream(RESTStream):
             next_url = data.get("next_url")
             record_timestamp_key = self.get_record_timestamp_key(record)
 
+            if not next_url:
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+                break
+
             if record_timestamp_key and self._cfg_start_timestamp_key:
                 if self.name != "stock_tickers":
                     logging.debug("DEBUG")
@@ -253,16 +293,16 @@ class PolygonRestStream(RESTStream):
                         f"For stream {self.name} you must provide a starting timestamp in meltano.yml."
                     )
 
-                cutoff_dt = self._to_datetime(self.cfg_starting_timestamp)
+                cutoff_start_dt = self._to_datetime(self.cfg_starting_timestamp)
 
-                if last_ts_dt < cutoff_dt:
+                if last_ts_dt < cutoff_start_dt:
                     logging.info(
-                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_dt})."
+                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_start_dt})."
                         f"Breaking pagination."
                     )
                     break
 
-                query_params = {"apiKey": self.query_params.get("apiKey")}
+                query_params = self._update_query_params(query_params)
 
             if (
                 record_timestamp_key is not None
@@ -300,21 +340,14 @@ class PolygonRestStream(RESTStream):
                     if last_ts_dt_for_to is None:
                         raise ValueError("Could not parse last_ts_dt_for_to")
 
-                    cutoff_to_dt_for_check = self._to_datetime(
-                        self.cfg_ending_timestamp
-                    )
+                    cutoff_end_to_dt = self._to_datetime(self.cfg_ending_timestamp)
 
-                    if last_ts_dt_for_to > cutoff_to_dt_for_check:
+                    if last_ts_dt_for_to > cutoff_end_to_dt:
                         logging.info(
                             f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to'"
-                            f"timestamp ({cutoff_to_dt_for_check}). Breaking pagination."
+                            f"timestamp ({cutoff_end_to_dt}). Breaking pagination."
                         )
                         break
-
-            if not next_url:
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
-                break
 
     def get_url(self, **kwargs):
         raise NotImplementedError(
@@ -354,7 +387,7 @@ class PolygonRestStream(RESTStream):
                 f"Config key '{self.name}' must be a dict or list of dicts."
             )
 
-        self.query_params["apiKey"] = self.config.get("api_key")
+        self.query_params["apiKey"] = self.config.get("rest_api_key")
 
     def _yield_records_for_tickers(self, query_params, ticker_records, url_params=None):
         url_params = {} if url_params is None else url_params
