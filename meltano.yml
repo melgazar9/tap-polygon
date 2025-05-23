@@ -72,9 +72,12 @@ plugins:
           sort: ticker
         tickers:
           - AAPL
+          - META
       ticker_details:
         query_params:
-          date: "2025-01-07"
+          date: "2025-05-21"
+        other_params:
+          loop_over_dates_gte_date: true
       custom_bars:
         - path_params:
             multiplier: 1

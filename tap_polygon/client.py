@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import typing as t
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 from polygon import RESTClient
@@ -35,7 +35,7 @@ class PolygonRestStream(RESTStream):
 
         self._cfg_start_timestamp_key = None
 
-        self.DEBUG = True
+        self.DEBUG = False
 
         timestamp_filter_fields = [
             "from",
@@ -56,7 +56,7 @@ class PolygonRestStream(RESTStream):
 
         timestamp_filter_suffixes = ["gt", "gte", "lt", "lte"]
 
-        combinations = [
+        combinations = timestamp_filter_fields + [
             f"{field}.{suffix}"
             for field in timestamp_filter_fields
             for suffix in timestamp_filter_suffixes
@@ -65,35 +65,29 @@ class PolygonRestStream(RESTStream):
         for param_source in ("query_params", "path_params"):
             param_dict = getattr(self, param_source, None)
             if param_dict:
-                if param_dict:
-                    for k, v in param_dict.items():
-                        if k in [
-                            i
-                            for i in combinations
-                            if not i.endswith(".lt") and not i.endswith(".lte")
-                        ]:
-                            self._cfg_start_timestamp_key = k
-                            self.cfg_starting_timestamp = v
-                        if k in [
-                            i
-                            for i in combinations
-                            if not i.endswith(".gt") and not i.endswith(".gte")
-                        ]:
-                            self._cfg_end_timestamp_key = k
-                            self.cfg_ending_timestamp = v
+                for k, v in param_dict.items():
+                    if k in [
+                        i
+                        for i in combinations
+                        if not i.endswith(".lt") and not i.endswith(".lte")
+                    ]:
+                        self._cfg_start_timestamp_key = k
+                        self.cfg_starting_timestamp = v
+                    if k in [
+                        i
+                        for i in combinations
+                        if not i.endswith(".gt") and not i.endswith(".gte")
+                    ]:
+                        self._cfg_end_timestamp_key = k
+                        self.cfg_ending_timestamp = v
 
-                if self._cfg_start_timestamp_key:
-                    break
+            if self._cfg_start_timestamp_key:
+                break
 
         if self._cfg_start_timestamp_key and not self.cfg_starting_timestamp:
             raise ConfigValidationError(
                 f"For stream {self.name} the starting timestamp field '{self._cfg_start_timestamp_key}' is required."
             )
-
-    def _debug(self):
-        if self.DEBUG and self.name != "stock_tickers":
-            logging.debug("DEBUG")
-        return
 
     @property
     def url_base(self) -> str:
@@ -158,7 +152,9 @@ class PolygonRestStream(RESTStream):
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
     ) -> t.Iterable[dict[str, t.Any]]:
-        self._debug()
+        if self.name != "stock_tickers":
+            logging.debug("DEBUG")
+
         query_params = query_params.copy()
         query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
         logging.info(
@@ -187,7 +183,9 @@ class PolygonRestStream(RESTStream):
 
             if isinstance(records, list):
                 for record in records:
-                    self._debug()
+                    if self.name != "stock_tickers":
+                        logging.debug("DEBUG")
+
                     if self._clean_in_place:
                         self.clean_record(record, **kwargs)
                     else:
@@ -196,7 +194,9 @@ class PolygonRestStream(RESTStream):
                     yield record
             else:
                 record = records
-                self._debug()
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+
                 if self._clean_in_place:
                     self.clean_record(record, **kwargs)
                 else:
@@ -217,11 +217,14 @@ class PolygonRestStream(RESTStream):
             record_timestamp_key = self.get_record_timestamp_key(record)
 
             if not next_url:
-                self._debug()
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
                 break
 
             if record_timestamp_key and self._cfg_start_timestamp_key:
-                self._debug()
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
+
                 if isinstance(record, list):
                     timestamps_seen = [
                         r.get(record_timestamp_key)
@@ -271,7 +274,8 @@ class PolygonRestStream(RESTStream):
                 and hasattr(self, "_cfg_end_timestamp_key")
                 and self._cfg_end_timestamp_key is not None
             ):
-                self._debug()
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
 
                 if isinstance(record, dict):
                     last_timestamp_for_to = record.get(record_timestamp_key)
@@ -295,7 +299,8 @@ class PolygonRestStream(RESTStream):
                     )
                     last_ts_dt_for_to = self._to_datetime(last_timestamp_for_to)
 
-                    self._debug()
+                    if self.name != "stock_tickers":
+                        logging.debug("DEBUG")
 
                     if last_ts_dt_for_to is None:
                         raise ValueError("Could not parse last_ts_dt_for_to")
@@ -312,7 +317,8 @@ class PolygonRestStream(RESTStream):
                         break
 
             if not next_url:
-                self._debug()
+                if self.name != "stock_tickers":
+                    logging.debug("DEBUG")
                 break
 
     def get_url(self, **kwargs):
@@ -325,6 +331,7 @@ class PolygonRestStream(RESTStream):
 
         self.path_params = {}
         self.query_params = {}
+        self.other_params = {}
 
         if not cfg_params:
             logging.warning(f"No config set for stream '{self.name}', using defaults.")
@@ -333,6 +340,8 @@ class PolygonRestStream(RESTStream):
                 self.path_params = cfg_params["path_params"]
             if "query_params" in cfg_params:
                 self.query_params = cfg_params["query_params"]
+            if "other_params" in cfg_params:
+                self.other_params = cfg_params["other_params"]
         elif isinstance(cfg_params, list):
             for params in cfg_params:
                 if not isinstance(params, dict):
@@ -343,15 +352,22 @@ class PolygonRestStream(RESTStream):
                     self.path_params = params["path_params"]
                 if "query_params" in params:
                     self.query_params = params["query_params"]
+                if "other_params" in params:
+                    self.other_params = params["other_params"]
         else:
             raise ConfigValidationError(
                 f"Config key '{self.name}' must be a dict or list of dicts."
             )
 
-        if not isinstance(self.query_params, dict):
-            self.query_params = {}
-
         self.query_params["apiKey"] = self.config.get("api_key")
+
+    def _yield_records_for_tickers(self, query_params, ticker_records):
+        for record in ticker_records:
+            ticker = record.get("ticker")
+            if self.name != "stock_tickers":
+                logging.debug("DEBUG")
+            url = self.get_url(ticker=ticker)
+            yield from self.paginate_records(url, query_params, ticker=ticker)
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         if self._use_cached_tickers is None:
@@ -361,11 +377,32 @@ class PolygonRestStream(RESTStream):
 
         if self._use_cached_tickers:
             ticker_records = self.tap.get_cached_tickers()
-            for record in ticker_records:
-                ticker = record.get("ticker")
-                self._debug()
-                url = self.get_url(ticker=ticker)
-                yield from self.paginate_records(url, self.query_params, ticker=ticker)
+            if self.other_params.get("loop_over_dates_gte_date"):
+                query_params = self.query_params.copy()
+                start_date = datetime.strptime(
+                    self.cfg_starting_timestamp, "%Y-%m-%d"
+                ).date()
+                if hasattr(self, "self._cfg_end_timestamp") and self._cfg_end_timestamp:
+                    end_date = min(
+                        datetime.strptime(self._cfg_end_timestamp, "%Y-%m-%d"),
+                        datetime.today(),
+                    ).date()
+                else:
+                    end_date = datetime.today().date()
+
+                current_date = start_date
+                while current_date < end_date:
+                    query_params[self._cfg_start_timestamp_key] = (
+                        current_date.isoformat()
+                    )
+                    yield from self._yield_records_for_tickers(
+                        query_params, ticker_records
+                    )
+                    current_date += timedelta(days=1)
+            else:
+                yield from self._yield_records_for_tickers(
+                    self.query_params, ticker_records
+                )
         else:
             url = self.get_url()
             yield from self.paginate_records(url, self.query_params)
