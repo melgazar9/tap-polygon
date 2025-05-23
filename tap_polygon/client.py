@@ -36,7 +36,7 @@ class PolygonRestStream(RESTStream):
 
         self._cfg_start_timestamp_key = None
 
-        self.DEBUG = True
+        self.DEBUG = False
 
         self.timestamp_filter_fields = [
             "from",
@@ -86,12 +86,6 @@ class PolygonRestStream(RESTStream):
             for field in self.timestamp_filter_fields
             for suffix in timestamp_filter_suffixes
         ]
-
-        self.non_date_query_params = {
-            k: v
-            for k, v in self.query_params.items()
-            if k.lower() not in self.timestamp_filter_fields
-        }
 
         if self.DEBUG and self.name != "stock_tickers":
             logging.debug("DEBUG")
@@ -150,10 +144,15 @@ class PolygonRestStream(RESTStream):
 
     def get_record_timestamp_key(self, record):
         record_timestamp_key = None
-        for k in record.keys():
-            if k in self.record_timestamp_keys:
-                record_timestamp_key = k
-                break
+        if isinstance(record, dict):
+            for k in record.keys():
+                if k in self.record_timestamp_keys:
+                    record_timestamp_key = k
+                    break
+        elif isinstance(record, list) and len(list):
+            logging.info('hi')
+        else:
+            raise ValueError(f"Record is not a dict or list in stream {self.name}!")
         return record_timestamp_key
 
     def get_new_paginator(self) -> PolygonAPIPaginator:
@@ -187,18 +186,121 @@ class PolygonRestStream(RESTStream):
         }
         return query_params
 
-    def paginate_records(
-        self, url: str, query_params: dict[str, t.Any], **kwargs
-    ) -> t.Iterable[dict[str, t.Any]]:
-        query_params = query_params.copy()
-        query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
-        logging.info(
+    def _break_loop_check(self, next_url, record, record_timestamp_key):
+        if self.name != 'stock_tickers':
+            logging.debug('debug')
+        if not next_url:
+            if self.name != "stock_tickers":
+                logging.debug("DEBUG")
+            return True
+
+        if record_timestamp_key and self._cfg_start_timestamp_key:
+            if self.name != "stock_tickers":
+                logging.debug("DEBUG")
+
+            if isinstance(record, list):
+                timestamps_seen = [
+                    r.get(record_timestamp_key)
+                    for r in record
+                    if r.get(record_timestamp_key) is not None
+                ]
+                if not timestamps_seen:
+                    logging.info(
+                        f"No valid timestamps found in record list for {self.name}. Breaking."
+                    )
+                    return True
+                last_timestamp = max(timestamps_seen)
+            elif isinstance(record, dict):
+                last_timestamp = record.get(record_timestamp_key)
+                if last_timestamp is None:
+                    logging.warning(
+                        f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking."
+                    )
+                    return True
+            else:
+                logging.info(
+                    f"No timestamps found in current batch for {self.name}. Breaking."
+                )
+                return True
+
+            last_timestamp = self._normalize_timestamp(last_timestamp)
+            last_ts_dt = self._to_datetime(last_timestamp)
+
+            if self._cfg_start_timestamp_key is None:
+                raise ConfigValidationError(
+                    f"For stream {self.name} you must provide a starting timestamp in meltano.yml."
+                )
+
+            cutoff_start_dt = self._to_datetime(self.cfg_starting_timestamp)
+
+            if last_ts_dt < cutoff_start_dt:
+                logging.info(
+                    f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_start_dt})."
+                    f"Breaking pagination."
+                )
+                return True
+
+        if (
+                record_timestamp_key is not None
+                and hasattr(self, "_cfg_end_timestamp_key")
+                and self._cfg_end_timestamp_key is not None
+        ):
+            if self.name != "stock_tickers":
+                logging.debug("DEBUG")
+
+            if isinstance(record, dict):
+                last_timestamp_for_to = record.get(record_timestamp_key)
+            elif isinstance(record, list):
+                valid_ts = [
+                    r.get(record_timestamp_key)
+                    for r in record
+                    if r.get(record_timestamp_key) is not None
+                ]
+                last_timestamp_for_to = max(valid_ts) if valid_ts else None
+            else:
+                last_timestamp_for_to = None
+
+            if last_timestamp_for_to is None:
+                logging.info(
+                    f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing."
+                )
+            else:
+                last_timestamp_for_to = self._normalize_timestamp(
+                    last_timestamp_for_to
+                )
+                last_ts_dt_for_to = self._to_datetime(last_timestamp_for_to)
+
+                if last_ts_dt_for_to is None:
+                    raise ValueError("Could not parse last_ts_dt_for_to")
+
+                cutoff_end_to_dt = self._to_datetime(self.cfg_ending_timestamp)
+
+                if last_ts_dt_for_to > cutoff_end_to_dt:
+                    logging.info(
+                        f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to'"
+                        f"timestamp ({cutoff_end_to_dt}). Breaking pagination."
+                    )
+                    return True
+
+    def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
+        """ Context needs to contain url: str and query_params: dict[str, t.Any]"""
+        if self.name != 'stock_tickers':
+            logging.debug('hi')
+
+        if "path_params" in context:
+            path_params = context.get("path_params").copy()
+        if "query_params" in context:
+            query_params = context["query_params"].copy()
+            query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
+            logging.info(
             f"Streaming {self.name} with query_params: {query_params_to_log}..."
         )
 
+        count = 0
         next_url = None
         while True:
-            response = requests.get(next_url or url, params=query_params)
+            request_url = next_url or self.get_url(context)
+            response = requests.get(request_url, params=query_params)
 
             data = response.json()
 
@@ -221,9 +323,9 @@ class PolygonRestStream(RESTStream):
                     if self.name != "stock_tickers":
                         logging.debug("DEBUG")
                     if self._clean_in_place:
-                        self.clean_record(record, **kwargs)
+                        self.clean_record(record, ticker=context.get("ticker"))
                     else:
-                        record = self.clean_record(record, **kwargs)
+                        record = self.clean_record(record, ticker=context.get("ticker"))
                     check_missing_fields(self.schema, record)
                     yield record
             else:
@@ -232,9 +334,9 @@ class PolygonRestStream(RESTStream):
                     logging.debug("DEBUG")
 
                 if self._clean_in_place:
-                    self.clean_record(record, **kwargs)
+                    self.clean_record(record, ticker=context.get("ticker"))
                 else:
-                    record = self.clean_record(record, **kwargs)
+                    record = self.clean_record(record, ticker=context.get("ticker"))
 
                 if isinstance(record, list):
                     rs = record.copy()
@@ -249,107 +351,19 @@ class PolygonRestStream(RESTStream):
                 break
 
             next_url = data.get("next_url")
+            if isinstance(record, list):
+                logging.debug('h')
             record_timestamp_key = self.get_record_timestamp_key(record)
+            count += 1
+            if self.name != 'stock_tickers':
+                logging.debug('debug')
 
-            if not next_url:
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
+            if self._break_loop_check(next_url, record, record_timestamp_key):
                 break
 
-            if record_timestamp_key and self._cfg_start_timestamp_key:
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
+            query_params = self._update_query_params(query_params)
 
-                if isinstance(record, list):
-                    timestamps_seen = [
-                        r.get(record_timestamp_key)
-                        for r in record
-                        if r.get(record_timestamp_key) is not None
-                    ]
-                    if not timestamps_seen:
-                        logging.info(
-                            f"No valid timestamps found in record list for {self.name}. Breaking."
-                        )
-                        break
-                    last_timestamp = max(timestamps_seen)
-                elif isinstance(record, dict):
-                    last_timestamp = record.get(record_timestamp_key)
-                    if last_timestamp is None:
-                        logging.warning(
-                            f"Timestamp key '{record_timestamp_key}' not found in record for {self.name}. Breaking."
-                        )
-                        break
-                else:
-                    logging.info(
-                        f"No timestamps found in current batch for {self.name}. Breaking."
-                    )
-                    break
-
-                last_timestamp = self._normalize_timestamp(last_timestamp)
-                last_ts_dt = self._to_datetime(last_timestamp)
-
-                if self._cfg_start_timestamp_key is None:
-                    raise ConfigValidationError(
-                        f"For stream {self.name} you must provide a starting timestamp in meltano.yml."
-                    )
-
-                cutoff_start_dt = self._to_datetime(self.cfg_starting_timestamp)
-
-                if last_ts_dt < cutoff_start_dt:
-                    logging.info(
-                        f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_start_dt})."
-                        f"Breaking pagination."
-                    )
-                    break
-
-                query_params = self._update_query_params(query_params)
-
-            if (
-                record_timestamp_key is not None
-                and hasattr(self, "_cfg_end_timestamp_key")
-                and self._cfg_end_timestamp_key is not None
-            ):
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
-
-                if isinstance(record, dict):
-                    last_timestamp_for_to = record.get(record_timestamp_key)
-                elif isinstance(record, list):
-                    valid_ts = [
-                        r.get(record_timestamp_key)
-                        for r in record
-                        if r.get(record_timestamp_key) is not None
-                    ]
-                    last_timestamp_for_to = max(valid_ts) if valid_ts else None
-                else:
-                    last_timestamp_for_to = None
-
-                if last_timestamp_for_to is None:
-                    logging.info(
-                        f"No valid timestamps found in current batch for {self.name} for 'to' check. Continuing."
-                    )
-                else:
-                    last_timestamp_for_to = self._normalize_timestamp(
-                        last_timestamp_for_to
-                    )
-                    last_ts_dt_for_to = self._to_datetime(last_timestamp_for_to)
-
-                    if self.name != "stock_tickers":
-                        logging.debug("DEBUG")
-
-                    if last_ts_dt_for_to is None:
-                        raise ValueError("Could not parse last_ts_dt_for_to")
-
-                    cutoff_end_to_dt = self._to_datetime(self.cfg_ending_timestamp)
-
-                    if last_ts_dt_for_to > cutoff_end_to_dt:
-                        logging.info(
-                            f"Latest record timestamp ({last_ts_dt_for_to}) in batch exceeds 'to'"
-                            f"timestamp ({cutoff_end_to_dt}). Breaking pagination."
-                        )
-                        break
-
-    def get_url(self, **kwargs):
+    def get_url(self, context: Context):
         raise NotImplementedError(
             "Method get_url must be overridden in the stream class."
         )
@@ -389,12 +403,13 @@ class PolygonRestStream(RESTStream):
 
         self.query_params["apiKey"] = self.config.get("rest_api_key")
 
-    def _yield_records_for_tickers(self, query_params, ticker_records, url_params=None):
-        url_params = {} if url_params is None else url_params
-        for record in ticker_records:
-            ticker = record.get("ticker")
-            url = self.get_url(ticker=ticker, **url_params)
-            yield from self.paginate_records(url, query_params, ticker=ticker)
+    def _yield_records_for_tickers(self, context):
+        path_params = {} if context.get("path_params") is None else context.get("path_params")
+        assert isinstance(context.get("ticker_records"), list), "When yielding records by ticker context must be a list."
+        for record in context.get("ticker_records"):
+            context["ticker"] = record.get("ticker")
+            context["url"] = self.get_url(context)
+            yield from self.paginate_records(context)
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         if self._use_cached_tickers is None:
@@ -402,9 +417,11 @@ class PolygonRestStream(RESTStream):
                 "The get_records method needs to know whether to use cached tickers."
             )
 
+        context = {} if context is None else context
+
         loop_over_dates = self.other_params.get("loop_over_dates_gte_date", False)
         query_params = self.query_params.copy()
-        url_params = {}
+        path_params = self.path_params.copy()
 
         if loop_over_dates:
             start_date = datetime.strptime(
@@ -432,27 +449,26 @@ class PolygonRestStream(RESTStream):
                     self._cfg_start_timestamp_key
                     in inspect.getfullargspec(self.get_url).args
                 ):
-                    url_params[self._cfg_start_timestamp_key] = current_date.isoformat()
+                    path_params[self._cfg_start_timestamp_key] = current_date.isoformat()
+
+                context["query_params"] = query_params
+                context["path_params"] = path_params
 
                 if self._use_cached_tickers:
-                    yield from self._yield_records_for_tickers(
-                        query_params, self.tap.get_cached_tickers(), url_params
-                    )
+                    context["ticker_records"] = self.tap.get_cached_tickers()
+                    yield from self._yield_records_for_tickers(context)
                 else:
-                    yield from self.paginate_records(
-                        self.get_url(**url_params), query_params
-                    )
+                    yield from self.paginate_records(context)
                 current_date += timedelta(days=1)
         else:
+            context["query_params"] = query_params
+            context["path_params"] = path_params
             if self._use_cached_tickers:
-
-                yield from self._yield_records_for_tickers(
-                    query_params, self.tap.get_cached_tickers(), url_params
-                )
+                context["ticker_records"] = self.tap.get_cached_tickers()
+                yield from self._yield_records_for_tickers(context)
             else:
-                yield from self.paginate_records(
-                    self.get_url(**url_params), query_params
-                )
+                context["url"] = self.get_url(context)
+                yield from self.paginate_records(context)
 
-    def clean_record(self, record: dict, **kwargs) -> dict:
+    def clean_record(self, record: dict, ticker=None) -> dict:
         return record

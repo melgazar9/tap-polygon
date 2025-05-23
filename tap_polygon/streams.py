@@ -47,7 +47,7 @@ class StockTickersStream(PolygonRestStream):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def get_url(self) -> str:
+    def get_url(self, context: Context = None) -> str:
         return f"{self.url_base}/v3/reference/tickers"
 
     def get_ticker_list(self) -> list[str] | None:
@@ -80,18 +80,20 @@ class StockTickersStream(PolygonRestStream):
     def get_records(
         self, context: dict[str, t.Any] | None
     ) -> t.Iterable[dict[str, t.Any]]:
+        context = {} if context is None else context
         ticker_list = self.get_ticker_list()
         base_url = self.get_url()
         query_params = self.query_params.copy()
         if not ticker_list:
             logging.info("Pulling all tickers...")
-            yield from self.paginate_records(base_url, query_params)
+            yield from self.paginate_records(context)
         else:
             logging.info(f"Pulling specific tickers: {ticker_list}")
             for ticker in ticker_list:
-                url = base_url
                 query_params.update({"ticker": ticker})
-                yield from self.paginate_records(url, query_params)
+                context["url"] = base_url
+                context["query_params"] = query_params
+                yield from self.paginate_records(context)
 
 
 class CachedTickerProvider:
@@ -173,7 +175,8 @@ class TickerDetailsStream(PolygonRestStream):
 
         self._use_cached_tickers = True
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/v3/reference/tickers/{ticker}"
 
 
@@ -210,7 +213,8 @@ class RelatedCompaniesStream(PolygonRestStream):
 
         self._use_cached_tickers = True
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/v1/related-companies/{ticker}"
 
     @staticmethod
@@ -246,7 +250,9 @@ class CustomBarsStream(PolygonRestStream):
         keys = ["multiplier", "timespan", "from", "to"]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
+        context.get("path_params")
         return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
 
     @staticmethod
@@ -291,7 +297,8 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
         self._use_cached_tickers = False
 
-    def get_url(self, date=None):
+    def get_url(self, context: Context):
+        date = context.get("path_params").get("date")
         if date is None:
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v2/aggs/grouped/locale/us/market/stocks/{date}"
@@ -337,8 +344,9 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
         self._use_cached_tickers = True
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
         date = self.path_params.get("date")
+        ticker = context.get("ticker")
         if date is None:
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v1/open-close/{ticker}/{date}"
@@ -414,7 +422,8 @@ class TopMarketMoversStream(PolygonRestStream):
 
         self._use_cached_tickers = False
 
-    def get_url(self, direction):
+    def get_url(self, context: Context):
+        direction = context.get("direction")
         return f"{self.url_base}/v2/snapshot/locale/us/markets/stocks/{direction}"
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
@@ -425,7 +434,7 @@ class TopMarketMoversStream(PolygonRestStream):
             or "direction" not in self.path_params
         ):
             for direction in ["gainers", "losers"]:
-                url = self.get_url(direction=direction)
+                url = self.get_url(context={"direction": direction})
                 data = requests.get(url, params=self.query_params)
                 for record in data.json().get("tickers"):
                     record["direction"] = direction
@@ -433,7 +442,7 @@ class TopMarketMoversStream(PolygonRestStream):
                     yield record
         else:
             direction = self.path_params.get("direction")
-            url = self.get_url(direction=direction)
+            url = self.get_url(context)
             data = requests.get(url, params=self.query_params)
             for record in data.json().get("tickers"):
                 record["direction"] = direction
@@ -441,7 +450,7 @@ class TopMarketMoversStream(PolygonRestStream):
                 yield record
 
     @staticmethod
-    def clean_record(record: dict, **kwargs) -> dict:
+    def clean_record(record: dict, ticker=None) -> dict:
         def to_snake_case(s):
             return re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()
 
@@ -504,7 +513,8 @@ class TradeStream(PolygonRestStream):
     def partitions(self) -> list[dict]:
         return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/v3/trades/{ticker}"
 
     def get_starting_timestamp(self, context: dict) -> str:
@@ -564,7 +574,7 @@ class QuoteStream(TradeStream):
         th.Property("trf_timestamp", th.IntegerType),
     ).to_dict()
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
         return f"{self.url_base}/v3/quotes/{ticker}"
 
 
@@ -587,7 +597,8 @@ class LastQuoteStream(QuoteStream):
         th.Property("z", th.IntegerType),
     ).to_dict()
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/v2/last/nbbo/{ticker}"
 
 
@@ -609,7 +620,8 @@ class IndicatorStream(PolygonRestStream):
     def base_indicator_url(self):
         return f"{self.url_base}/v1/indicators"
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
     @staticmethod
@@ -664,7 +676,7 @@ class ExchangesStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/exchanges"
 
 
@@ -686,7 +698,7 @@ class MarketHolidaysStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v1/marketstatus/upcoming"
 
 
@@ -807,7 +819,7 @@ class ConditionCodesStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/conditions"
 
 
@@ -855,7 +867,7 @@ class IPOsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/ipos"
 
     def clean_record(self, record: dict, ticker=None) -> dict:
@@ -879,7 +891,7 @@ class SplitsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/splits"
 
 
@@ -905,7 +917,7 @@ class DividendsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/dividends"
 
 
@@ -937,7 +949,8 @@ class TickerEventsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = True
 
-    def get_url(self, ticker):
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/vX/reference/tickers/{ticker}/events"
 
 
@@ -1189,7 +1202,7 @@ class FinancialsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/financials"
 
 
@@ -1210,7 +1223,7 @@ class ShortInterestStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/vX/short-interest"
 
 
@@ -1241,7 +1254,7 @@ class ShortVolumeStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/vX/short-volume"
 
 
@@ -1283,5 +1296,5 @@ class NewsStream(PolygonRestStream):
         self.tap = tap
         self._use_cached_tickers = False
 
-    def get_url(self, ticker=None):
+    def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
