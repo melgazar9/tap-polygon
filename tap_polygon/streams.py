@@ -163,6 +163,8 @@ class TickerDetailsStream(PolygonRestStream):
         th.Property("base_currency_name", th.StringType),
         th.Property("base_currency_symbol", th.StringType),
         th.Property("currency_symbol", th.StringType),
+        th.Property("cusip", th.StringType),
+        th.Property("last_updated_utc", th.DateTimeType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -289,8 +291,7 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
         self._use_cached_tickers = False
 
-    def get_url(self):
-        date = self.path_params.get("date")
+    def get_url(self, date=None):
         if date is None:
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v2/aggs/grouped/locale/us/market/stocks/{date}"

@@ -75,7 +75,7 @@ plugins:
           - META
       ticker_details:
         query_params:
-          date: "2025-05-21"
+          date: "2025-05-20"
         other_params:
           loop_over_dates_gte_date: true
       custom_bars:
@@ -90,15 +90,19 @@ plugins:
             limit: 50000
       daily_market_summary:
         - path_params:
-            date: "2025-01-06"  # leave blank or set to "" to get current day
+            date: "2025-05-21"  # leave blank or set to "" to get current day
         - query_params:
             adjusted: true
             include_otc: true
+        - other_params:
+            loop_over_dates_gte_date: true
       daily_ticker_summary:
         - path_params:
-            date: "2025-05-01"
+            date: "2025-05-20"
         - query_params:
             adjusted: true
+        - other_params:
+            loop_over_dates_gte_date: true
       top_market_movers:
         - query_params:
             direction: "gainers"  # set to "" or "both" to get both directions

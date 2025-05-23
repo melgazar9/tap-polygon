@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 import typing as t
 from datetime import datetime, timedelta, timezone
@@ -147,7 +148,6 @@ class PolygonRestStream(RESTStream):
             return datetime.fromisoformat(ts.replace("Z", "+00:00")).replace(
                 tzinfo=timezone.utc
             )
-        return
 
     def paginate_records(
         self, url: str, query_params: dict[str, t.Any], **kwargs
@@ -185,7 +185,6 @@ class PolygonRestStream(RESTStream):
                 for record in records:
                     if self.name != "stock_tickers":
                         logging.debug("DEBUG")
-
                     if self._clean_in_place:
                         self.clean_record(record, **kwargs)
                     else:
@@ -203,9 +202,10 @@ class PolygonRestStream(RESTStream):
                     record = self.clean_record(record, **kwargs)
 
                 if isinstance(record, list):
-                    for r in record.copy():
+                    rs = record.copy()
+                    for record in rs:
                         check_missing_fields(self.schema, record)
-                        yield r
+                        yield record
                 else:
                     check_missing_fields(self.schema, record)
                     yield record
@@ -215,11 +215,6 @@ class PolygonRestStream(RESTStream):
 
             next_url = data.get("next_url")
             record_timestamp_key = self.get_record_timestamp_key(record)
-
-            if not next_url:
-                if self.name != "stock_tickers":
-                    logging.debug("DEBUG")
-                break
 
             if record_timestamp_key and self._cfg_start_timestamp_key:
                 if self.name != "stock_tickers":
@@ -361,12 +356,11 @@ class PolygonRestStream(RESTStream):
 
         self.query_params["apiKey"] = self.config.get("api_key")
 
-    def _yield_records_for_tickers(self, query_params, ticker_records):
+    def _yield_records_for_tickers(self, query_params, ticker_records, url_params=None):
+        url_params = {} if url_params is None else url_params
         for record in ticker_records:
             ticker = record.get("ticker")
-            if self.name != "stock_tickers":
-                logging.debug("DEBUG")
-            url = self.get_url(ticker=ticker)
+            url = self.get_url(ticker=ticker, **url_params)
             yield from self.paginate_records(url, query_params, ticker=ticker)
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
@@ -375,37 +369,57 @@ class PolygonRestStream(RESTStream):
                 "The get_records method needs to know whether to use cached tickers."
             )
 
-        if self._use_cached_tickers:
-            ticker_records = self.tap.get_cached_tickers()
-            if self.other_params.get("loop_over_dates_gte_date"):
-                query_params = self.query_params.copy()
-                start_date = datetime.strptime(
-                    self.cfg_starting_timestamp, "%Y-%m-%d"
-                ).date()
-                if hasattr(self, "self._cfg_end_timestamp") and self._cfg_end_timestamp:
-                    end_date = min(
-                        datetime.strptime(self._cfg_end_timestamp, "%Y-%m-%d"),
-                        datetime.today(),
-                    ).date()
-                else:
-                    end_date = datetime.today().date()
+        loop_over_dates = self.other_params.get("loop_over_dates_gte_date", False)
+        query_params = self.query_params.copy()
+        url_params = {}
 
-                current_date = start_date
-                while current_date < end_date:
+        if loop_over_dates:
+            start_date = datetime.strptime(
+                self.cfg_starting_timestamp, "%Y-%m-%d"
+            ).date()
+            end_date = (
+                min(
+                    datetime.strptime(self._cfg_end_timestamp, "%Y-%m-%d"),
+                    datetime.today(),
+                ).date()
+                if hasattr(self, "_cfg_end_timestamp")
+                else datetime.today().date()
+            )
+
+            current_date = start_date
+            while current_date < end_date:
+                # query_params date update
+                if self._cfg_start_timestamp_key in query_params:
                     query_params[self._cfg_start_timestamp_key] = (
                         current_date.isoformat()
                     )
+
+                # path_params date update
+                if (
+                    self._cfg_start_timestamp_key
+                    in inspect.getfullargspec(self.get_url).args
+                ):
+                    url_params[self._cfg_start_timestamp_key] = current_date.isoformat()
+
+                if self._use_cached_tickers:
                     yield from self._yield_records_for_tickers(
-                        query_params, ticker_records
+                        query_params, self.tap.get_cached_tickers(), url_params
                     )
-                    current_date += timedelta(days=1)
-            else:
-                yield from self._yield_records_for_tickers(
-                    self.query_params, ticker_records
-                )
+                else:
+                    yield from self.paginate_records(
+                        self.get_url(**url_params), query_params
+                    )
+                current_date += timedelta(days=1)
         else:
-            url = self.get_url()
-            yield from self.paginate_records(url, self.query_params)
+            if self._use_cached_tickers:
+
+                yield from self._yield_records_for_tickers(
+                    query_params, self.tap.get_cached_tickers(), url_params
+                )
+            else:
+                yield from self.paginate_records(
+                    self.get_url(**url_params), query_params
+                )
 
     def clean_record(self, record: dict, **kwargs) -> dict:
         return record
