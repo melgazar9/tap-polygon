@@ -517,31 +517,6 @@ class TradeStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v3/trades/{ticker}"
 
-    def get_starting_timestamp(self, context: dict) -> str:
-        state = self.get_context_state(context)
-
-        start_timestamp_cfg = self.config.get("start_date")
-        start_timestamp_cfg_ns = int(
-            datetime.fromisoformat(
-                start_timestamp_cfg.replace("Z", "+00:00")
-            ).timestamp()
-            * 1e9
-        )
-
-        state_timestamp_ns = state.get("replication_key_value")
-
-        if state_timestamp_ns is None:
-            state_timestamp_ns = start_timestamp_cfg_ns
-        else:
-            state_timestamp_ns = int(state_timestamp_ns)
-
-        start_timestamp_ns = max(start_timestamp_cfg_ns, state_timestamp_ns)
-        start_timestamp_iso = datetime.fromtimestamp(
-            start_timestamp_ns / 1e9, tz=timezone.utc
-        ).isoformat()
-
-        return start_timestamp_iso
-
     @staticmethod
     def clean_record(record: dict, ticker=None) -> dict:
         surrogate_key = ""
@@ -604,10 +579,38 @@ class LastQuoteStream(QuoteStream):
 
 class IndicatorStream(PolygonRestStream):
     schema = th.PropertiesList(
-        th.Property("timestamp", th.IntegerType),
-        th.Property("ticker", th.StringType),
-        th.Property("value", th.NumberType),
-        th.Property("url", th.StringType),
+        th.Property(
+            "underlying",
+            th.ObjectType(
+                th.Property(
+                    "aggregates",
+                    th.ArrayType(
+                        th.ObjectType(
+                            th.Property("T", th.StringType),
+                            th.Property("v", th.NumberType),
+                            th.Property("vw", th.NumberType),
+                            th.Property("o", th.NumberType),
+                            th.Property("c", th.NumberType),
+                            th.Property("h", th.NumberType),
+                            th.Property("l", th.NumberType),
+                            th.Property("t", th.IntegerType),
+                            th.Property("n", th.IntegerType),
+                        )
+                    ),
+                ),
+                th.Property("url", th.StringType),
+            ),
+        ),
+        th.Property(
+            "values",
+            th.ArrayType(
+                th.ObjectType(
+                    th.Property("timestamp", th.IntegerType),
+                    th.Property("value", th.NumberType),
+                )
+            ),
+        ),
+        th.Property("series_window_timespan", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -615,7 +618,7 @@ class IndicatorStream(PolygonRestStream):
         self.tap = tap
 
         self._use_cached_tickers = True
-        self._clean_in_place = False
+        self._clean_in_place = True
 
     def base_indicator_url(self):
         return f"{self.url_base}/v1/indicators"
@@ -624,19 +627,14 @@ class IndicatorStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
-    @staticmethod
-    def clean_record(record, ticker) -> list[dict]:
-        url = record.get("underlying", {}).get("url")
-        return [
-            {
-                "timestamp": entry["timestamp"],
-                "value": entry["value"],
-                "url": url,
-                "ticker": ticker,
-            }
-            for entry in record.get("values", [])
-        ]
-
+    def clean_record(self, record: dict, ticker=None) -> dict:
+        max_agg_ts = max(item['t'] for item in record.get('underlying').get('aggregates'))
+        agg_window = self.query_params.get("window")
+        agg_timespan = self.query_params.get("timespan")
+        agg_series_type = self.query_params.get("series_type")
+        record["series_window_timespan"] = f"{agg_series_type}_{agg_timespan}_{agg_window}"
+        record["max_underlying_timestamp"] = max_agg_ts
+        record["max_indicator_timestamp"] = max_agg_ts
 
 class SmaStream(IndicatorStream):
     name = "sma"

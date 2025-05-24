@@ -184,6 +184,9 @@ plugins:
             order: asc
 
     metadata:
+      custom_bars:
+        replication-method: INCREMENTAL
+        replication-key: timestamp
       trades:
         replication-method: INCREMENTAL
         replication-key: replication_key
