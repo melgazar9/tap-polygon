@@ -8,7 +8,7 @@ import logging
 import re
 import typing as t
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime
 
 import requests
 from singer_sdk import typing as th
@@ -550,6 +550,7 @@ class QuoteStream(TradeStream):
     ).to_dict()
 
     def get_url(self, context: Context):
+        ticker = context.get("ticker")
         return f"{self.url_base}/v3/quotes/{ticker}"
 
 
@@ -628,13 +629,18 @@ class IndicatorStream(PolygonRestStream):
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
     def clean_record(self, record: dict, ticker=None) -> dict:
-        max_agg_ts = max(item['t'] for item in record.get('underlying').get('aggregates'))
+        max_agg_ts = max(
+            item["t"] for item in record.get("underlying").get("aggregates")
+        )
         agg_window = self.query_params.get("window")
         agg_timespan = self.query_params.get("timespan")
         agg_series_type = self.query_params.get("series_type")
-        record["series_window_timespan"] = f"{agg_series_type}_{agg_timespan}_{agg_window}"
+        record["series_window_timespan"] = (
+            f"{agg_series_type}_{agg_timespan}_{agg_window}"
+        )
         record["max_underlying_timestamp"] = max_agg_ts
         record["max_indicator_timestamp"] = max_agg_ts
+
 
 class SmaStream(IndicatorStream):
     name = "sma"
