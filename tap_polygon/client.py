@@ -295,12 +295,10 @@ class PolygonRestStream(RESTStream):
                     f"Expecting response data to be type list or dict, got type {type(data)}"
                 )
 
-            if self.name == "market_holidays":
-                break
-
-            logging.info(
-                f"Stream {self.name}: Received {len(records)} records in this batch. Next URL: {self.get_next_url(data)}"
-            )
+            if self.name != "market_holidays":
+                logging.info(
+                    f"Stream {self.name}: Received {len(records)} records in this batch. Next URL: {self.get_next_url(data)}"
+                )
 
             if not records:
                 logging.info(
