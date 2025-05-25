@@ -7,7 +7,7 @@ import typing as t
 from singer_sdk import Tap
 from singer_sdk import typing as th
 
-from tap_polygon.streams import (  # CachedTickerProvider,; QuoteStream,; LastQuoteStream,
+from tap_polygon.stock_streams import (  # CachedTickerProvider,; QuoteStream,; LastQuoteStream,
     ConditionCodesStream,
     CustomBarsStream,
     DailyMarketSummaryStream,
