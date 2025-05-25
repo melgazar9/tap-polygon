@@ -26,9 +26,8 @@ class StockTickersStream(PolygonRestStream):
     """Fetch all stock tickers from Polygon."""
 
     name = "stock_tickers"
-    replication_key = "timestamp_extracted"
-    is_timestamp_replication_key = True
-    replication_method = "INCREMENTAL"
+
+    primary_keys = ["cik", "ticker"]
 
     schema = th.PropertiesList(
         th.Property("cik", th.StringType),
@@ -130,9 +129,6 @@ class StockTickersStream(PolygonRestStream):
                 context["query_params"] = query_params
                 yield from self.paginate_records(context)
 
-    def clean_record(self, record: dict, ticker: str | None = None) -> dict:
-        record["timestamp_extracted"] = datetime.utcnow().isoformat()
-
 
 class CachedTickerProvider:
     def __init__(self, tap):
@@ -153,6 +149,8 @@ class CachedTickerProvider:
 
 class TickerDetailsStream(PolygonRestStream):
     name = "ticker_details"
+    primary_keys = ["ticker"]
+
     schema = th.PropertiesList(
         th.Property("active", th.BooleanType),
         th.Property(
@@ -164,7 +162,6 @@ class TickerDetailsStream(PolygonRestStream):
                 th.Property("postal_code", th.StringType),
                 th.Property("state", th.StringType),
             ),
-            optional=True,
         ),
         th.Property(
             "branding",
@@ -172,7 +169,6 @@ class TickerDetailsStream(PolygonRestStream):
                 th.Property("icon_url", th.StringType),
                 th.Property("logo_url", th.StringType),
             ),
-            optional=True,
         ),
         th.Property("cik", th.StringType),
         th.Property("composite_figi", th.StringType),
@@ -222,6 +218,8 @@ class TickerTypesStream(PolygonRestStream):
     """TickerTypesStream - does not require pagination so use Polygon's RESTClient() to fetch the data."""
 
     name = "ticker_types"
+    primary_keys = ["code"]
+
     schema = th.PropertiesList(
         th.Property(
             "asset_class", th.StringType
@@ -245,6 +243,8 @@ class RelatedCompaniesStream(PolygonRestStream):
         th.Property("related_company", th.StringType),
     ).to_dict()
 
+    primary_keys = ["ticker"]
+
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
@@ -263,12 +263,17 @@ class RelatedCompaniesStream(PolygonRestStream):
 
 class CustomBarsStream(PolygonRestStream):
     name = "custom_bars"
+
+    primary_keys = ["timestamp", "ticker"]
+
     replication_key = "timestamp"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
-    is_sorted = False
+    is_sorted = False  # Polygon cannot guarantee sorted records across pages
+
     schema = th.PropertiesList(
+        th.Property("timestamp", th.DateTimeType),
         th.Property("ticker", th.StringType),
-        th.Property("timestamp", th.NumberType),
         th.Property("open", th.NumberType),
         th.Property("high", th.NumberType),
         th.Property("low", th.NumberType),
@@ -316,10 +321,12 @@ class CustomBarsStream(PolygonRestStream):
 
         record["ticker"] = ticker
         record["otc"] = record.get("otc", None)
+        record["timestamp"] = safe_parse_datetime(record["timestamp"]).isoformat()
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
     name = "daily_market_summary"
+    primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
     is_timestamp_replication_key = True
 
@@ -373,9 +380,11 @@ class DailyTickerSummaryStream(PolygonRestStream):
     replication_key = "from"
     is_timestamp_replication_key = True
 
+    primary_keys = ["symbol", "from"]
+
     schema = th.PropertiesList(
         th.Property("symbol", th.StringType),
-        th.Property("from", th.DateTimeType),
+        th.Property("from", th.DateType),
         th.Property("open", th.NumberType),
         th.Property("high", th.NumberType),
         th.Property("low", th.NumberType),
@@ -406,8 +415,8 @@ class DailyTickerSummaryStream(PolygonRestStream):
 
     @staticmethod
     def clean_record(record, ticker=None):
-        record["pre_market"] = record.pop("preMarket")
-        record["after_hours"] = record.pop("afterHours")
+        record["pre_market"] = record.pop("preMarket", None)
+        record["after_hours"] = record.pop("afterHours", None)
 
 
 class PreviousDayBarSummaryStream(PolygonRestStream):
@@ -415,7 +424,56 @@ class PreviousDayBarSummaryStream(PolygonRestStream):
     Not really useful given we have the other streams."""
 
     name = "previous_day_bar"
-    pass
+
+    primary_keys = ["timestamp", "ticker"]
+    replication_key = "timestamp"
+    is_timestamp_replication_key = True
+
+    schema = th.PropertiesList(
+        th.Property("ticker", th.StringType),
+        th.Property("timestamp", th.DateTimeType),
+        th.Property("open", th.NumberType),
+        th.Property("high", th.NumberType),
+        th.Property("low", th.NumberType),
+        th.Property("close", th.NumberType),
+        th.Property("volume", th.NumberType),
+        th.Property("vwap", th.NumberType),
+        th.Property("transactions", th.NumberType),
+        th.Property("otc", th.BooleanType),
+    ).to_dict()
+
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+
+        self._use_cached_tickers = True
+
+    def get_url(self, context: Context):
+        ticker = context.get("ticker")
+        return f"{self.url_base}/v2/aggs/ticker/{ticker}/prev"
+
+    @property
+    def partitions(self) -> list[dict]:
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+
+    @staticmethod
+    def clean_record(record, ticker=None):
+        mapping = {
+            "T": "ticker",
+            "t": "timestamp",
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume",
+            "vw": "vwap",
+            "n": "transactions",
+            "otc": "otc",
+        }
+        for old_key, new_key in mapping.items():
+            if old_key in record:
+                record[new_key] = record.pop(old_key)
+        record["timestamp"] = safe_parse_datetime(record["timestamp"])
 
 
 class TickerSnapshotStream(PolygonRestStream):
@@ -459,16 +517,18 @@ class TopMarketMoversStream(PolygonRestStream):
     replication_key = "updated"
     is_timestamp_replication_key = True
 
+    primary_keys = ["updated", "ticker"]
+
     schema = th.PropertiesList(
+        th.Property("updated", th.DateTimeType),
+        th.Property("ticker", th.StringType),
         th.Property("day", th.AnyType()),
         th.Property("last_quote", th.AnyType()),
         th.Property("last_trade", th.AnyType()),
         th.Property("min", th.AnyType()),
         th.Property("prev_day", th.AnyType()),
-        th.Property("ticker", th.StringType),
         th.Property("todays_change", th.NumberType),
         th.Property("todays_change_percent", th.NumberType),
-        th.Property("updated", th.DateTimeType),
         th.Property("fair_market_value", th.BooleanType),
     ).to_dict()
 
@@ -545,6 +605,12 @@ class TradeStream(PolygonRestStream):
     is_timestamp_replication_key = True
     is_sorted = False
 
+    primary_keys = [
+        "ticker",
+        "exchange",
+        "id",
+    ]  # if duplicate records add sip_timestamp
+
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
         th.Property("ticker", th.StringType),
@@ -576,19 +642,9 @@ class TradeStream(PolygonRestStream):
         return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
     def clean_record(self, record: dict, ticker: str | None = None) -> dict:
-        if self.replication_key in record and isinstance(
-            record[self.replication_key], (int, float)
-        ):
-            ts = record[self.replication_key]
-            if ts > 1e15:
-                dt = datetime.utcfromtimestamp(ts / 1e9)
-            elif ts > 1e13:
-                dt = datetime.utcfromtimestamp(ts / 1e6)
-            elif ts > 1e10:
-                dt = datetime.utcfromtimestamp(ts / 1e3)
-            else:
-                dt = datetime.utcfromtimestamp(ts)
-            record[self.replication_key] = dt.isoformat() + "Z"
+        dt = record.get(self.replication_key)
+        parsed_dt = safe_parse_datetime(dt)
+        record[self.replication_key] = parsed_dt.isoformat() if parsed_dt else None
         return record
 
 
@@ -597,7 +653,10 @@ class QuoteStream(TradeStream):
     replication_key = "sip_timestamp"
     is_timestamp_replication_key = True
 
+    primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
+
     schema = th.PropertiesList(
+        th.Property("ticker", th.StringType),
         th.Property("ask_exchange", th.IntegerType),
         th.Property("ask_price", th.NumberType),
         th.Property("ask_size", th.NumberType),
@@ -606,11 +665,11 @@ class QuoteStream(TradeStream):
         th.Property("bid_size", th.NumberType),
         th.Property("conditions", th.ArrayType(th.IntegerType)),
         th.Property("indicators", th.ArrayType(th.IntegerType)),
-        th.Property("participant_timestamp", th.IntegerType),
+        th.Property("participant_timestamp", th.DateTimeType),
         th.Property("sequence_number", th.IntegerType),
-        th.Property("sip_timestamp", th.IntegerType),
+        th.Property("sip_timestamp", th.DateTimeType),
         th.Property("tape", th.IntegerType),
-        th.Property("trf_timestamp", th.IntegerType),
+        th.Property("trf_timestamp", th.DateTimeType),
     ).to_dict()
 
     def get_url(self, context: Context):
@@ -621,23 +680,35 @@ class QuoteStream(TradeStream):
     def partitions(self) -> list[dict]:
         return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
+    @staticmethod
+    def clean_record(record: dict, ticker: str) -> dict:
+        record["ticker"] = ticker
+        for ts_field in ["sip_timestamp", "participant_timestamp", "trf_timestamp"]:
+            if ts_field in record:
+                record[ts_field] = safe_parse_datetime(record[ts_field])
+        return record
 
-class LastQuoteStream(QuoteStream):
+
+class LastQuoteStream(PolygonRestStream):
     name = "last_quote"
+    replication_key = "t"
+    is_timestamp_replication_key = True
+    primary_keys = ["ticker", "t", "q"]
     schema = th.PropertiesList(
+        th.Property("ticker", th.StringType),
         th.Property("P", th.NumberType),
         th.Property("S", th.IntegerType),
         th.Property("T", th.StringType),
         th.Property("X", th.IntegerType),
         th.Property("c", th.ArrayType(th.IntegerType)),
-        th.Property("f", th.IntegerType),
+        th.Property("f", th.DateTimeType),  # TRF nanoseconds to ISO8601
         th.Property("i", th.ArrayType(th.IntegerType)),
         th.Property("p", th.NumberType),
         th.Property("q", th.IntegerType),
         th.Property("s", th.IntegerType),
-        th.Property("t", th.IntegerType),
+        th.Property("t", th.DateTimeType),  # SIP nanoseconds to ISO8601
         th.Property("x", th.IntegerType),
-        th.Property("y", th.IntegerType),
+        th.Property("y", th.DateTimeType),  # Participant ns to ISO8601
         th.Property("z", th.IntegerType),
     ).to_dict()
 
@@ -649,49 +720,42 @@ class LastQuoteStream(QuoteStream):
     def partitions(self) -> list[dict]:
         return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
+    @staticmethod
+    def clean_record(record: dict, ticker: str):
+        record["ticker"] = ticker
+        for ts_field in ["t", "f", "y"]:
+            if ts_field in record and record[ts_field] is not None:
+                record[ts_field] = safe_parse_datetime(record[ts_field])
+        return record
+
 
 class IndicatorStream(PolygonRestStream):
     schema = th.PropertiesList(
-        th.Property(
-            "underlying",
-            th.ObjectType(
-                th.Property(
-                    "aggregates",
-                    th.ArrayType(
-                        th.ObjectType(
-                            th.Property("T", th.StringType),
-                            th.Property("v", th.NumberType),
-                            th.Property("vw", th.NumberType),
-                            th.Property("o", th.NumberType),
-                            th.Property("c", th.NumberType),
-                            th.Property("h", th.NumberType),
-                            th.Property("l", th.NumberType),
-                            th.Property("t", th.IntegerType),
-                            th.Property("n", th.IntegerType),
-                        )
-                    ),
-                ),
-                th.Property("url", th.StringType),
-            ),
-        ),
-        th.Property(
-            "values",
-            th.ArrayType(
-                th.ObjectType(
-                    th.Property("timestamp", th.IntegerType),
-                    th.Property("value", th.NumberType),
-                )
-            ),
-        ),
+        th.Property("timestamp", th.DateTimeType),  # Indicator value timestamp
+        th.Property("underlying_timestamp", th.DateTimeType),
+        th.Property("ticker", th.StringType),
+        th.Property("indicator", th.StringType),
         th.Property("series_window_timespan", th.StringType),
+        th.Property("value", th.NumberType),
+        th.Property("underlying_ticker", th.StringType),
+        th.Property("underlying_open", th.NumberType),
+        th.Property("underlying_high", th.NumberType),
+        th.Property("underlying_low", th.NumberType),
+        th.Property("underlying_close", th.NumberType),
+        th.Property("underlying_volume", th.NumberType),
+        th.Property("underlying_vwap", th.NumberType),
+        th.Property("underlying_transactions", th.IntegerType),
     ).to_dict()
+
+    replication_key = "timestamp"
+
+    primary_keys = ["ticker", "indicator", "series_window_timespan", "timestamp"]
 
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
 
         self._use_cached_tickers = True
-        self._clean_in_place = True
 
     def base_indicator_url(self):
         return f"{self.url_base}/v1/indicators"
@@ -700,18 +764,61 @@ class IndicatorStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
-    def clean_record(self, record: dict, ticker=None) -> dict:
-        max_agg_ts = max(
-            item["t"] for item in record.get("underlying").get("aggregates")
-        )
+    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
+        # Flatten a single API record (which may have many "values") into flat records
         agg_window = self.query_params.get("window")
         agg_timespan = self.query_params.get("timespan")
         agg_series_type = self.query_params.get("series_type")
-        record["series_window_timespan"] = (
-            f"{agg_series_type}_{agg_timespan}_{agg_window}"
-        )
-        record["max_underlying_timestamp"] = max_agg_ts
-        record["max_indicator_timestamp"] = max_agg_ts
+        series_window_timespan = f"{agg_series_type}_{agg_timespan}_{agg_window}"
+
+        aggregates = (response.get("underlying") or {}).get("aggregates", [])
+        agg_ts_map = []
+        for agg in aggregates:
+            ts = agg.get("t")
+            if isinstance(ts, (int, float)):
+                ts = safe_parse_datetime(ts).isoformat()
+            agg_ts_map.append((ts, agg))
+        agg_ts_map.sort()
+
+        def find_closest_agg(ts):
+            left, right = 0, len(agg_ts_map) - 1
+            result = None
+            while left <= right:
+                mid = (left + right) // 2
+                if agg_ts_map[mid][0] is not None and agg_ts_map[mid][0] <= ts:
+                    result = agg_ts_map[mid][1]
+                    left = mid + 1
+                else:
+                    right = mid - 1
+            return result or {}
+
+        for value in response.get("values", []):
+            ts = value.get("timestamp")
+            if isinstance(ts, (int, float)):
+                ts = safe_parse_datetime(ts).isoformat()
+
+            matching_agg = find_closest_agg(ts)
+
+            yield {
+                "ticker": response.get("ticker") or context.get("ticker"),
+                "indicator": self.name,
+                "series_window_timespan": series_window_timespan,
+                "timestamp": ts,
+                "value": value.get("value"),
+                "underlying_ticker": matching_agg.get("T"),
+                "underlying_volume": matching_agg.get("v"),
+                "underlying_vwap": matching_agg.get("vw"),
+                "underlying_open": matching_agg.get("o"),
+                "underlying_close": matching_agg.get("c"),
+                "underlying_high": matching_agg.get("h"),
+                "underlying_low": matching_agg.get("l"),
+                "underlying_transactions": matching_agg.get("n"),
+                "underlying_timestamp": (
+                    safe_parse_datetime(matching_agg.get("t")).isoformat()
+                    if matching_agg.get("t")
+                    else None
+                ),
+            }
 
 
 class SmaStream(IndicatorStream):
@@ -734,6 +841,8 @@ class ExchangesStream(PolygonRestStream):
     """Fetch Exchanges"""
 
     name = "exchanges"
+    primary_keys = ["id"]
+
     schema = th.PropertiesList(
         th.Property("id", th.IntegerType),
         th.Property("type", th.StringType),
@@ -760,6 +869,9 @@ class MarketHolidaysStream(PolygonRestStream):
     """Market Holidays Stream (forward-looking)"""
 
     name = "market_holidays"
+
+    primary_keys = ["exchange", "name", "date"]
+
     schema = th.PropertiesList(
         th.Property("close", th.StringType),
         th.Property("date", th.StringType),
@@ -783,8 +895,10 @@ class MarketStatusStream(PolygonRestStream):
 
     name = "market_status"
 
+    primary_keys = ["server_time"]
+
     schema = th.PropertiesList(
-        th.Property("afterHours", th.BooleanType),
+        th.Property("after_hours", th.BooleanType),
         th.Property(
             "currencies",
             th.ObjectType(
@@ -792,7 +906,7 @@ class MarketStatusStream(PolygonRestStream):
                 th.Property("fx", th.StringType),
             ),
         ),
-        th.Property("earlyHours", th.BooleanType),
+        th.Property("early_hours", th.BooleanType),
         th.Property(
             "exchanges",
             th.ObjectType(
@@ -802,7 +916,7 @@ class MarketStatusStream(PolygonRestStream):
             ),
         ),
         th.Property(
-            "indicesGroups",
+            "indices_groups",
             th.ObjectType(
                 th.Property("cccy", th.StringType),
                 th.Property("cgi", th.StringType),
@@ -817,7 +931,7 @@ class MarketStatusStream(PolygonRestStream):
             ),
         ),
         th.Property("market", th.StringType),
-        th.Property("serverTime", th.StringType),
+        th.Property("server_time", th.StringType),
     ).to_dict()
 
     def get_records(
@@ -826,13 +940,22 @@ class MarketStatusStream(PolygonRestStream):
         market_status = self.client.get_market_status()
         yield asdict(market_status)
 
+    def clean_record(self, record: dict, **kwargs) -> dict:
+        record["after_hours"] = record.pop("afterHours", None)
+        record["early_hours"] = record.pop("earlyHours", None)
+        record["indices_groups"] = record.pop("indicesGroups", None)
+        record["server_time"] = record.pop("serverTime", None)
+
 
 class ConditionCodesStream(PolygonRestStream):
     """Condition Codes Stream"""
 
     name = "condition_codes"
 
+    primary_keys = ["id", "asset_class", "type"]
+
     schema = th.PropertiesList(
+        th.Property("id", th.IntegerType),
         th.Property("abbreviation", th.StringType),
         th.Property(
             "asset_class", th.StringType, enum=["stocks", "options", "crypto", "fx"]
@@ -840,7 +963,6 @@ class ConditionCodesStream(PolygonRestStream):
         th.Property("data_types", th.ArrayType(th.StringType)),
         th.Property("description", th.StringType),
         th.Property("exchange", th.IntegerType),
-        th.Property("id", th.IntegerType),
         th.Property("legacy", th.BooleanType),
         th.Property("name", th.StringType),
         th.Property(
@@ -903,8 +1025,11 @@ class IPOsStream(PolygonRestStream):
     """IPOs Stream"""
 
     name = "ipos"
+
+    primary_keys = ["ticker", "listing_date"]
+
     schema = th.PropertiesList(
-        th.Property("announced_date", th.StringType),
+        th.Property("announced_date", th.DateType),
         th.Property("currency_code", th.StringType),
         th.Property("final_issue_price", th.NumberType),
         th.Property("highest_offer_price", th.NumberType),
@@ -923,7 +1048,7 @@ class IPOsStream(PolygonRestStream):
         ),
         th.Property("isin", th.StringType),
         th.Property("issuer_name", th.StringType),
-        th.Property("last_updated", th.StringType),
+        th.Property("last_updated", th.DateType),
         th.Property("listing_date", th.StringType),
         th.Property("lot_size", th.NumberType),
         th.Property("lowest_offer_price", th.NumberType),
@@ -957,9 +1082,11 @@ class SplitsStream(PolygonRestStream):
     replication_key = "execution_date"
     is_timestamp_replication_key = True
 
+    primary_keys = ["id"]
+
     schema = th.PropertiesList(
-        th.Property("execution_date", th.DateTimeType),
         th.Property("id", th.StringType),
+        th.Property("execution_date", th.DateTimeType),
         th.Property("split_from", th.NumberType),
         th.Property("split_to", th.NumberType),
         th.Property("ticker", th.StringType),
@@ -984,6 +1111,8 @@ class DividendsStream(PolygonRestStream):
     name = "dividends"
     replication_key = "ex_dividend_date"
     is_timestamp_replication_key = True
+
+    primary_keys = ["id"]
 
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
@@ -1015,23 +1144,15 @@ class TickerEventsStream(PolygonRestStream):
     """Ticker Events Stream"""
 
     name = "ticker_events"
+    primary_keys = ["cik", "name", "date", "type"]
+
     schema = th.PropertiesList(
-        th.Property(
-            "events",
-            th.ArrayType(
-                th.ObjectType(
-                    th.Property("date", th.StringType),
-                    th.Property(
-                        "ticker_change",
-                        th.ObjectType(th.Property("ticker", th.StringType)),
-                    ),
-                    th.Property("type", th.StringType),
-                )
-            ),
-        ),
         th.Property("name", th.StringType),
         th.Property("cik", th.StringType),
         th.Property("composite_figi", th.StringType),
+        th.Property("date", th.StringType),
+        th.Property("type", th.StringType),
+        th.Property("ticker", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -1042,6 +1163,20 @@ class TickerEventsStream(PolygonRestStream):
     def get_url(self, context: Context):
         ticker = context.get("ticker")
         return f"{self.url_base}/vX/reference/tickers/{ticker}/events"
+
+    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
+        parent_fields = ["name", "composite_figi", "cik"]
+        events = response.get("events", [])
+        for event in events:
+            flat_event = {pf: response.get(pf) for pf in parent_fields}
+            flat_event["date"] = event.get("date")
+            flat_event["type"] = event.get("type")
+            flat_event["ticker"] = (
+                event.get("ticker_change", {}).get("ticker")
+                if isinstance(event.get("ticker_change"), dict)
+                else None
+            )
+            yield flat_event
 
 
 def _financial_metric_property(name: str):
@@ -1062,6 +1197,8 @@ class FinancialsStream(PolygonRestStream):
     name = "financials"
     replication_key = "acceptance_datetime"
     is_timestamp_replication_key = True
+
+    primary_keys = ["cik", "end_date", "timeframe"]
 
     schema = th.PropertiesList(
         th.Property("acceptance_datetime", th.StringType),
@@ -1301,7 +1438,7 @@ class FinancialsStream(PolygonRestStream):
     @property
     def partitions(self) -> list[dict]:
         # return [{"ticker": t["ticker"]} for t in self.tap.get_cached_ciks()]  # need to implement
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+        return [{"cik": t["cik"]} for t in self.tap.get_cached_tickers()]
 
 
 class ShortInterestStream(PolygonRestStream):
@@ -1311,8 +1448,10 @@ class ShortInterestStream(PolygonRestStream):
     replication_key = "settlement_date"
     is_timestamp_replication_key = True
 
+    primary_keys = ["ticker", "settlement_date"]
+
     schema = th.PropertiesList(
-        th.Property("settlement_date", th.DateTimeType),
+        th.Property("settlement_date", th.DateType),
         th.Property("ticker", th.StringType),
         th.Property("short_interest", th.IntegerType),
         th.Property("avg_daily_volume", th.IntegerType),
@@ -1339,8 +1478,10 @@ class ShortVolumeStream(PolygonRestStream):
     replication_key = "date"
     is_timestamp_replication_key = True
 
+    primary_keys = ["ticker", "date"]
+
     schema = th.PropertiesList(
-        th.Property("date", th.DateTimeType),
+        th.Property("date", th.DateType),
         th.Property("ticker", th.StringType),
         th.Property("short_volume", th.IntegerType),
         th.Property("short_volume_ratio", th.NumberType),
@@ -1375,8 +1516,9 @@ class NewsStream(PolygonRestStream):
 
     name = "news"
     replication_key = "published_utc"
-    # replication_key = "id"
     is_timestamp_replication_key = True
+
+    primary_keys = ["id"]
 
     publisher_schema = th.ObjectType(
         th.Property("homepage_url", th.StringType),
@@ -1414,3 +1556,7 @@ class NewsStream(PolygonRestStream):
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
+
+    @property
+    def partitions(self) -> list[dict]:
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]

@@ -1,7 +1,7 @@
 import inspect
 import logging
 import typing as t
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import requests
 from polygon import RESTClient
@@ -143,6 +143,10 @@ class PolygonRestStream(RESTStream):
     @staticmethod
     def get_next_url(data) -> t.Optional[str]:
         return data.get("next_url")
+
+    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
+        """Default passthrough: yield the record unchanged."""
+        yield response
 
     def get_starting_replication_key_value(
         self, context: Context | None
@@ -316,13 +320,14 @@ class PolygonRestStream(RESTStream):
             if not isinstance(records, list):
                 records = [records]
 
-            for record in records:
-                if self._clean_in_place:
-                    self.clean_record(record, ticker=context.get("ticker"))
-                else:
-                    record = self.clean_record(record, ticker=context.get("ticker"))
-                self._check_missing_fields(self.schema, record)
-                yield record
+            for raw_record in records:
+                for record in self.parse_response(raw_record, context):
+                    if self._clean_in_place:
+                        self.clean_record(record, ticker=context.get("ticker"))
+                    else:
+                        record = self.clean_record(record, ticker=context.get("ticker"))
+                    self._check_missing_fields(self.schema, record)
+                    yield record
 
             if self.replication_method == "INCREMENTAL":
                 increment_state(
@@ -422,48 +427,9 @@ class PolygonRestStream(RESTStream):
                 request_context["replication_key_value"] = state.get(
                     "replication_key_value"
                 )
-                request_context["url"] = self.get_url(request_context)
-
                 if loop_over_dates:
-                    if not self.cfg_starting_timestamp:
-                        raise ConfigValidationError(
-                            f"Stream {self.name} is configured to loop over dates, but "
-                            "'cfg_starting_timestamp' is not set."
-                        )
-                    start_date = datetime.strptime(
-                        self.cfg_starting_timestamp.split("T")[0], "%Y-%m-%d"
-                    ).date()
-                    end_date = datetime.today().date()
-                    if self._cfg_end_timestamp_key and self.cfg_end_timestamp_value:
-                        try:
-                            configured_end_date = datetime.strptime(
-                                self.cfg_end_timestamp_value.split("T")[0], "%Y-%m-%d"
-                            ).date()
-                            end_date = min(configured_end_date, end_date)
-                        except ValueError:
-                            logging.warning(
-                                f"Could not parse _cfg_end_timestamp '{self.cfg_end_timestamp_value}'. Using today's date."
-                            )
-                    current_timestamp = start_date
-                    while current_timestamp <= end_date:
-                        date_loop_context = partition_context.copy()
-                        date_loop_context["query_params"] = (
-                            self._update_params_with_timestamp(
-                                current_timestamp,
-                                base_query_params,
-                                is_path_param=False,
-                            )
-                        )
-                        date_loop_context["path_params"] = (
-                            self._update_params_with_timestamp(
-                                current_timestamp, base_path_params, is_path_param=True
-                            )
-                        )
-                        date_loop_context["url"] = self.get_url(date_loop_context)
-                        yield from self.paginate_records(date_loop_context)
-                        current_timestamp += timedelta(days=1)
+                    pass
                 else:
-                    partition_context["url"] = self.get_url(partition_context)
                     yield from self.paginate_records(request_context)
         else:
             state = self.get_context_state(context)
@@ -478,7 +444,6 @@ class PolygonRestStream(RESTStream):
                     "replication_key_value": state.get("replication_key_value"),
                 }
             )
-            request_context["url"] = self.get_url(request_context)
             yield from self.paginate_records(request_context)
 
     def clean_record(self, record: dict, ticker: str | None = None) -> dict:

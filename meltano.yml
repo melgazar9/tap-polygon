@@ -40,6 +40,7 @@ plugins:
       - custom_bars.*
       - daily_market_summary.*
       - daily_ticker_summary.*
+      - previous_day_bar.*
       - top_market_movers.*
       - trades.*
       - quotes.*
@@ -203,3 +204,4 @@ plugins:
   - name: target-jsonl
     variant: andyh1203
     pip_url: target-jsonl
+
