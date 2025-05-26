@@ -1,7 +1,6 @@
-import inspect
 import logging
 import typing as t
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 from polygon import RESTClient
@@ -18,51 +17,23 @@ class PolygonRestStream(RESTStream):
         super().__init__(tap=tap)
         self.client = RESTClient(self.config["rest_api_key"])
         self._use_cached_tickers: bool | None = None
-        self._clean_in_place = True
         self.parse_config_params()
 
         self._cfg_start_timestamp_key: str | None = None
         self._cfg_end_timestamp_key: str | None = None
-        self.cfg_starting_timestamp: str | None = None
-        self.cfg_end_timestamp_value: str | None = None
+        self._cfg_starting_timestamp_value: str | None = None
+        self._cfg_end_timestamp_value: str | None = None
 
         self.timestamp_filter_fields = [
-            "from",
-            "from_",
-            "to",
-            "to_",
-            "date",
-            "timestamp",
-            "ex_dividend_date",
-            "record_date",
-            "declaration_date",
-            "pay_date",
-            "listing_date",
-            "execution_date",
-            "filing_date",
-            "period_of_report_date",
-            "settlement_date",
-            "published_utc",
+            "from", "from_", "to", "to_", "date", "timestamp", "ex_dividend_date",
+            "record_date", "declaration_date", "pay_date", "listing_date",
+            "execution_date", "filing_date", "period_of_report_date",
+            "settlement_date", "published_utc",
         ]
         self.record_timestamp_keys = [
-            "timestamp",
-            "date",
-            "last_updated",
-            "announced_date",
-            "published_utc",
-            "ex_dividend_date",
-            "sip_timestamp",
-            "record_date",
-            "trf_timestamp",
-            "declaration_date",
-            "pay_date",
-            "last_updated_utc",
-            "listing_date",
-            "execution_date",
-            "participant_timestamp",
-            "filing_date",
-            "acceptance_datetime",
-            "end_date",
+            "timestamp", "date", "last_updated", "announced_date", "published_utc", "ex_dividend_date",
+            "sip_timestamp", "record_date", "trf_timestamp", "declaration_date", "pay_date", "last_updated_utc",
+            "listing_date", "execution_date", "participant_timestamp", "filing_date", "acceptance_datetime", "end_date",
             "settlement_date",
         ]
         timestamp_filter_suffixes = ["gt", "gte", "lt", "lte"]
@@ -74,65 +45,33 @@ class PolygonRestStream(RESTStream):
 
         self._set_timestamp_config_keys()
 
-        if self._cfg_start_timestamp_key and not self.cfg_starting_timestamp:
+        if self._cfg_start_timestamp_key and not self._cfg_starting_timestamp_value:
             raise ConfigValidationError(
                 f"For stream {self.name} the starting timestamp field "
                 f"'{self._cfg_start_timestamp_key}' is configured but has no value."
             )
 
-    def _check_missing_fields(self, schema: dict, record: dict):
-        schema_fields = set(schema.get("properties", {}).keys())
-        record_keys = set(record.keys())
-
-        missing_in_record = schema_fields - record_keys
-        if missing_in_record:
-            logging.debug(
-                f"*** Missing fields in record that are present in schema: {missing_in_record} for tap {self.name} ***"
-            )
-
-        missing_in_schema = record_keys - schema_fields
-        if missing_in_schema:
-            logging.critical(
-                f"*** Missing fields in schema that are present record: {missing_in_schema} ***"
-            )
-
     def _set_timestamp_config_keys(self) -> None:
         disallowed_start_keys = {"to", "to_"}
         allowed_end_keys = {"to", "to_"}
-
         for param_source in ("query_params", "path_params"):
             param_dict = getattr(self, param_source, None)
             if not param_dict:
                 continue
-
             for k, v in param_dict.items():
                 base_key = k.split(".")[0]
-
                 if (
-                    k
-                    in [
-                        i
-                        for i in self.timestamp_field_combos
-                        if not i.endswith((".lt", ".lte"))
-                    ]
+                    k in [i for i in self.timestamp_field_combos if not i.endswith((".lt", ".lte"))]
                     and base_key not in disallowed_start_keys
                 ):
                     self._cfg_start_timestamp_key = k
-                    self.cfg_starting_timestamp = v
-
+                    self._cfg_starting_timestamp_value = v
                 if (
-                    k
-                    in [
-                        i
-                        for i in self.timestamp_field_combos
-                        if not i.endswith((".gt", ".gte"))
-                    ]
-                    and base_key
-                    in allowed_end_keys  # changed from NOT in disallowed_end_keys
+                    k in [i for i in self.timestamp_field_combos if not i.endswith((".gt", ".gte"))]
+                    and base_key in allowed_end_keys
                 ):
                     self._cfg_end_timestamp_key = k
-                    self.cfg_end_timestamp_value = v
-
+                    self._cfg_end_timestamp_value = v
             if self._cfg_start_timestamp_key:
                 break
 
@@ -140,37 +79,21 @@ class PolygonRestStream(RESTStream):
     def url_base(self) -> str:
         return self.config.get("base_url", "https://api.polygon.io")
 
-    @staticmethod
-    def get_next_url(data) -> t.Optional[str]:
-        return data.get("next_url")
-
-    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
-        """Default passthrough: yield the record unchanged."""
-        yield response
-
-    def get_starting_replication_key_value(
-        self, context: Context | None
-    ) -> t.Any | None:
-        state_replication_value = (
-            context.get("replication_key_value") if context else None
-        )
+    def get_starting_replication_key_value(self, context: Context | None) -> t.Any | None:
+        if not self.is_timestamp_replication_key or self.replication_method != "INCREMENTAL":
+            return None
+        state = self.get_context_state(context)
+        state_replication_value = state.get("replication_key_value") if state else None
         state_dt = safe_parse_datetime(state_replication_value)
-        cfg_dt = safe_parse_datetime(self.cfg_starting_timestamp)
+        cfg_dt = safe_parse_datetime(self._cfg_starting_timestamp_value)
 
-        if (
-            self.is_timestamp_replication_key
-            and self.replication_method == "INCREMENTAL"
-        ):
+        if self.is_timestamp_replication_key and self.replication_method == "INCREMENTAL":
             if state_dt and cfg_dt:
                 return max(state_dt, cfg_dt).isoformat()
             if state_dt:
                 return state_dt.isoformat()
             if cfg_dt:
                 return cfg_dt.isoformat()
-
-        logging.warning(
-            f"No valid starting timestamp config or context for stream {self.name}."
-        )
         return None
 
     def get_record_timestamp_key(self, record: dict | list) -> str | None:
@@ -179,99 +102,42 @@ class PolygonRestStream(RESTStream):
             target_record = record
         elif isinstance(record, list) and record and isinstance(record[0], dict):
             target_record = record[0]
-
         if target_record:
             for preferred_key in self.record_timestamp_keys:
                 if preferred_key in target_record:
                     return preferred_key
 
-    def _update_params_with_timestamp(
-        self, current_timestamp: datetime.date, params: dict, is_path_param: bool
-    ) -> dict:
-        """Updates parameters with the current date (the as-of/point-in-time timestamp), handling query vs. path keys."""
-        updated_params = params.copy()
-        if self._cfg_start_timestamp_key:
-            if is_path_param:
-                base_key = self._cfg_start_timestamp_key.split(".")[0]
-                if base_key in inspect.getfullargspec(self.get_url).args:
-                    updated_params[self._cfg_start_timestamp_key] = (
-                        current_timestamp.isoformat()
-                    )
-            else:
-                updated_params[self._cfg_start_timestamp_key] = (
-                    current_timestamp.isoformat()
-                )
-        return updated_params
-
-    def _update_query_params(self, query_params):
-        query_params = {
-            k: v
-            for k, v in query_params.items()
-            if k not in self.timestamp_field_combos
-        }
-        return query_params
-
-    def _break_loop_check(self, context: Context) -> bool:
-        if not context.get("next_url"):
-            logging.debug(
-                f"No 'next_url' in context for stream {self.name}. Breaking pagination."
-            )
-            return True
-
-        last_timestamp_str = context.get("replication_key_value")
-
-        if last_timestamp_str is None:
-            logging.info(
-                f"No '{self.replication_key}' found in context for stream {self.name}. Continuing pagination."
-            )
-            return False
-
-        last_ts_dt = safe_parse_datetime(last_timestamp_str)
-
-        if last_ts_dt is None:
-            logging.warning(
-                f"Could not parse '{self.replication_key}' from context for stream {self.name}. Continuing."
-            )
-            return False
-
-        if self._cfg_start_timestamp_key:
-            starting_replication_value = self.get_starting_replication_key_value(
-                context
-            )
-            cutoff_start_dt = safe_parse_datetime(starting_replication_value)
-
-            if cutoff_start_dt and last_ts_dt < cutoff_start_dt:
-                logging.info(
-                    f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_start_dt}). "
-                    f"Breaking pagination for {self.name}."
-                )
-                return True
-
-        if self._cfg_end_timestamp_key and self.cfg_end_timestamp_value:
-            cutoff_end_dt = safe_parse_datetime(self.cfg_end_timestamp_value)
-            if cutoff_end_dt and last_ts_dt > cutoff_end_dt:
-                logging.info(
-                    f"Latest record timestamp ({last_ts_dt}) in batch exceeds 'to' timestamp ({cutoff_end_dt}). "
-                    f"Breaking pagination for {self.name}."
-                )
-                return True
-        return False
+    def _update_query_path_params_with_state(self, context: Context, query_params: dict, path_params: dict, pop_timestamp: bool = False) -> tuple[dict, dict]:
+        if pop_timestamp:
+            query_params = {k: v for k, v in query_params.items() if k not in self.timestamp_field_combos}
+            path_params = {k: v for k, v in path_params.items() if k not in self.timestamp_field_combos}
+        else:
+            if self.is_timestamp_replication_key and self._cfg_start_timestamp_key:
+                starting_replication_key_value = self.get_starting_replication_key_value(context)
+                if starting_replication_key_value:
+                    if self._cfg_start_timestamp_key in query_params:
+                        query_params[self._cfg_start_timestamp_key] = starting_replication_key_value
+                    if self._cfg_start_timestamp_key in path_params:
+                        path_params[self._cfg_start_timestamp_key] = starting_replication_key_value
+        return query_params, path_params
 
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
-        partition_context = {"ticker": context.get("ticker")}
         query_params = context.get("query_params", {}).copy()
+        path_params = context.get("path_params", {}).copy()
+        request_context = dict(ticker=context.get("ticker"), query_params=query_params, path_params=path_params)
+        if "query_params" in context:
+            context.pop("query_params")
+        if "path_params" in context:
+            context.pop("path_params")
+
         next_url = None
-        no_records_counter = 0  # counter in case API sends back next_url but no data is returned. Prevents infinite loop.
+        no_records_counter = 0
+
+        state = self.get_context_state(context)
+
         while True:
-            state = (
-                self.get_context_state(partition_context)
-                if self.replication_method == "INCREMENTAL"
-                else {}
-            )
-            request_url = next_url or self.get_url(context)
-            query_params_to_log = {
-                k: v for k, v in query_params.items() if k != "apiKey"
-            }
+            request_url = next_url or self.get_url(request_context)
+            query_params_to_log = {k: v for k, v in query_params.items() if k != "apiKey"}
             logging.info(
                 f"Streaming {self.name} from URL: {request_url} with query_params: {query_params_to_log}..."
             )
@@ -283,25 +149,16 @@ class PolygonRestStream(RESTStream):
                 logging.error(f"Request failed for {self.name} at {request_url}: {e}")
                 break
             except ValueError as e:
-                logging.error(
-                    f"Failed to decode JSON for {self.name} at {request_url}: {e}"
-                )
+                logging.error(f"Failed to decode JSON for {self.name} at {request_url}: {e}")
                 break
 
-            if isinstance(
-                data, dict
-            ):  # data from response should either be a list or dict
+            if isinstance(data, dict):
                 records = data.get("results", data)
             elif isinstance(data, list):
                 records = data
             else:
                 raise ValueError(
-                    f"Expecting response data to be type list or dict, got type {type(data)}"
-                )
-
-            if self.name != "market_holidays":
-                logging.info(
-                    f"Stream {self.name}: Received {len(records)} records in this batch. Next URL: {self.get_next_url(data)}"
+                    f"Expecting response data to be type list or dict, got type {type(data)} for stream {self.name}."
                 )
 
             if not records:
@@ -309,7 +166,7 @@ class PolygonRestStream(RESTStream):
                     f"No records returned for {self.name} in this batch. Checking if it's a persistent empty response."
                 )
                 no_records_counter += 1
-                if no_records_counter >= 3:  # Break after 3 consecutive empty responses
+                if no_records_counter >= 3:
                     logging.info(
                         f"Breaking pagination for {self.name} due to {no_records_counter} consecutive empty record batches."
                     )
@@ -320,54 +177,44 @@ class PolygonRestStream(RESTStream):
             if not isinstance(records, list):
                 records = [records]
 
+            latest_record = None
             for raw_record in records:
                 for record in self.parse_response(raw_record, context):
-                    if self._clean_in_place:
-                        self.clean_record(record, ticker=context.get("ticker"))
-                    else:
-                        record = self.clean_record(record, ticker=context.get("ticker"))
+                    record = self.post_process(record, context)
+                    if not record:
+                        continue
                     self._check_missing_fields(self.schema, record)
+                    latest_record = record
                     yield record
 
-            if self.replication_method == "INCREMENTAL":
+            if self.replication_method == "INCREMENTAL" and latest_record is not None:
                 increment_state(
                     state,
                     replication_key=self.replication_key,
-                    latest_record=record,
+                    latest_record=latest_record,
                     is_sorted=self.is_sorted,
                     check_sorted=self.check_sorted,
                 )
 
-                if "progress_markers" not in state:
-                    state["progress_markers"] = {}
-
-                logging.info(f"*** STATE UPDATED TO {state} ***")
-
-            progress_markers = state.get("progress_markers", {}) if state else {}
+                if "progress_markers" in state and "replication_key_value" in state["progress_markers"]:
+                    state["replication_key_value"] = state["progress_markers"]["replication_key_value"]
 
             if isinstance(data, list):
-                logging.info(f"Breaking out of loop for stream {self.name}")
+                logging.info(f"Breaking out of loop for stream {self.name}. Not checking pagination for next_url.")
                 break
 
-            next_url = self.get_next_url(data)
-            query_params = self._update_query_params(query_params)
-
-            context.update(
-                {
-                    "next_url": next_url,
-                    "replication_key_value": progress_markers.get(
-                        "replication_key_value"
-                    ),
-                }
-            )
-
-            if self._break_loop_check(context):
+            next_url = data.get("next_url")
+            query_params, path_params = self._update_query_path_params_with_state(context, query_params, path_params)
+            replication_key_value = self.get_starting_replication_key_value(context)
+            if self._break_loop_check(next_url, replication_key_value):
                 break
 
     def get_url(self, context: Context) -> str:
-        raise NotImplementedError(
-            "Method get_url must be overridden in the stream class."
-        )
+        raise NotImplementedError("Method get_url must be overridden in the stream class.")
+
+    def parse_response(self, record: dict, context: Context) -> t.Iterable[dict]:
+        """Default passthrough: yield the record unchanged."""
+        yield record
 
     def parse_config_params(self) -> None:
         cfg_params = self.config.get(self.name)
@@ -397,54 +244,109 @@ class PolygonRestStream(RESTStream):
         self.query_params["apiKey"] = self.config.get("rest_api_key")
 
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        if self._use_cached_tickers is None:
-            raise ValueError(
-                "The get_records method needs to know whether to use cached tickers. "
-                "Set _use_cached_tickers in your stream's __init__ or dynamically."
-            )
-
+        """
+        Only handle one partition per get_records call.
+        Let the tap framework handle looping over partitions (i.e., per ticker).
+        """
         context = context if context is not None else {}
         loop_over_dates = self.other_params.get("loop_over_dates_gte_date", False)
 
         base_query_params = self.query_params.copy()
         base_path_params = self.path_params.copy()
 
-        if self._use_cached_tickers:
-            ticker_records = self.tap.get_cached_tickers()
-            for ticker_record in ticker_records:
-                partition_context = {"ticker": ticker_record["ticker"]}
-                state = self.get_context_state(partition_context)
-                request_context = partition_context.copy()
-                request_context["query_params"] = state.get(
-                    "query_params", base_query_params.copy()
-                )
-                request_context["path_params"] = state.get(
-                    "path_params", base_path_params.copy()
-                )
-                request_context["replication_key"] = state.get(
-                    "replication_key", self.replication_key
-                )
-                request_context["replication_key_value"] = state.get(
-                    "replication_key_value"
-                )
-                if loop_over_dates:
-                    pass
-                else:
-                    yield from self.paginate_records(request_context)
-        else:
-            state = self.get_context_state(context)
-            request_context = context.copy()
-            request_context.update(
-                {
-                    "query_params": state.get("query_params", base_query_params.copy()),
-                    "path_params": state.get("path_params", base_path_params.copy()),
-                    "replication_key": state.get(
-                        "replication_key", self.replication_key
-                    ),
-                    "replication_key_value": state.get("replication_key_value"),
-                }
-            )
-            yield from self.paginate_records(request_context)
+        query_params, path_params = self._update_query_path_params_with_state(context, base_query_params, base_path_params)
+        context["query_params"] = query_params
+        context["path_params"] = path_params
 
-    def clean_record(self, record: dict, ticker: str | None = None) -> dict:
-        return record
+        if not loop_over_dates:
+            yield from self.paginate_records(context)
+        else:
+            if not self._cfg_starting_timestamp_value:
+                raise ConfigValidationError(
+                    f"Stream {self.name} is configured to loop over dates, but "
+                    "'_cfg_starting_timestamp' is not set."
+                )
+
+            start_date = datetime.strptime(
+                self._cfg_starting_timestamp_value.split("T")[0], "%Y-%m-%d"
+            ).date()
+
+            end_date = datetime.today().date()
+
+            if self._cfg_end_timestamp_key and self.cfg_end_timestamp_value:
+                try:
+                    configured_end_date = datetime.strptime(
+                        self._cfg_end_timestamp_value.split("T")[0], "%Y-%m-%d"
+                    ).date()
+                    end_date = min(configured_end_date, end_date)
+                except ValueError:
+                    logging.warning(
+                        f"Could not parse _cfg_end_timestamp '{self.cfg_end_timestamp_value}'. Using today's date."
+                    )
+
+            current_timestamp = start_date
+
+            while current_timestamp <= end_date:
+                context["query_params"] = query_params.copy()
+                context["path_params"] = path_params.copy()
+                if self._cfg_start_timestamp_key in context.get("query_params"):
+                    context["query_params"][self._cfg_start_timestamp_key] = current_timestamp.isoformat()
+                if self._cfg_start_timestamp_key in context.get("path_params"):
+                    context["path_params"][self._cfg_start_timestamp_key] = current_timestamp.isoformat()
+                yield from self.paginate_records(context)
+                current_timestamp += timedelta(days=1)
+
+    def _check_missing_fields(self, schema: dict, record: dict):
+        schema_fields = set(schema.get("properties", {}).keys())
+        record_keys = set(record.keys())
+        missing_in_record = schema_fields - record_keys
+        if missing_in_record:
+            logging.debug(
+                f"*** Missing fields in record that are present in schema: {missing_in_record} for tap {self.name} ***"
+            )
+        missing_in_schema = record_keys - schema_fields
+        if missing_in_schema:
+            logging.critical(
+                f"*** Missing fields in schema that are present record: {missing_in_schema} ***"
+            )
+
+    def _break_loop_check(self, next_url, replication_key_value) -> bool:
+        if not next_url:
+            logging.debug(
+                f"No 'next_url' in context for stream {self.name}. Breaking pagination."
+            )
+            return True
+
+        if replication_key_value is None:
+            logging.info(
+                f"No '{self.replication_key}' found in context for stream {self.name}. Continuing pagination."
+            )
+            return False
+
+        last_ts_dt = safe_parse_datetime(replication_key_value)
+
+        if last_ts_dt is None:
+            logging.warning(
+                f"Could not parse '{self.replication_key}' from context for stream {self.name}. Continuing."
+            )
+            return False
+
+        if self._cfg_start_timestamp_key:
+            cutoff_start_dt = safe_parse_datetime(self._cfg_starting_timestamp_value)
+
+            if cutoff_start_dt and last_ts_dt < cutoff_start_dt:
+                logging.info(
+                    f"Last record timestamp ({last_ts_dt}) in batch is older than 'from' timestamp ({cutoff_start_dt}). "
+                    f"Breaking pagination for {self.name}."
+                )
+                return True
+
+        if self._cfg_end_timestamp_key and self._cfg_end_timestamp_value:
+            cutoff_end_dt = safe_parse_datetime(self._cfg_end_timestamp_value)
+            if cutoff_end_dt and last_ts_dt > cutoff_end_dt:
+                logging.info(
+                    f"Latest record timestamp ({last_ts_dt}) in batch exceeds 'to' timestamp ({cutoff_end_dt}). "
+                    f"Breaking pagination for {self.name}."
+                )
+                return True
+        return False

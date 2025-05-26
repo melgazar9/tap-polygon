@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import requests
 from singer_sdk import typing as th
-from singer_sdk.helpers.types import Context
+from singer_sdk.helpers.types import Context, Record
 
 from tap_polygon.client import PolygonRestStream
 from tap_polygon.utils import safe_parse_datetime
@@ -56,30 +56,8 @@ class StockTickersStream(PolygonRestStream):
     # def get_starting_replication_key_value(self, context: Context | None) -> str | None:
     #     return context.get("replication_key_value") if context else None
 
-    def get_starting_replication_key_value(self, context: Context | None) -> str | None:
-        if context:
-            replication_value = context.get("replication_key_value")
-            if replication_value:
-                try:
-                    if isinstance(replication_value, (int, float, Decimal)):
-                        return (
-                            datetime.utcfromtimestamp(
-                                float(replication_value)
-                            ).isoformat()
-                            + "Z"
-                        )
-                    # Handle string type (expected ISO format)
-                    logging.critical(f"****** {replication_value} ******")
-                    datetime.fromisoformat(replication_value.replace("Z", "+00:00"))
-                    return replication_value
-                except ValueError as e:
-                    logging.warning(
-                        f"Invalid replication key value in context: {replication_value}, error: {e}"
-                    )
-        return self.cfg_starting_timestamp or None
-
-    def _break_loop_check(self, context: Context) -> bool:
-        return not context.get("next_url")
+    def _break_loop_check(self, next_url, replication_key_value=None) -> bool:
+        return not next_url
 
     def get_url(self, context: Context = None) -> str:
         return f"{self.url_base}/v3/reference/tickers"
@@ -125,7 +103,6 @@ class StockTickersStream(PolygonRestStream):
             logging.info(f"Pulling specific tickers: {ticker_list}")
             for ticker in ticker_list:
                 query_params.update({"ticker": ticker})
-                context["url"] = base_url
                 context["query_params"] = query_params
                 yield from self.paginate_records(context)
 
@@ -143,11 +120,16 @@ class CachedTickerProvider:
             self._tickers = self.tap.get_cached_tickers()
         return self._tickers
 
+class TickerPartitionedStream(PolygonRestStream):
+    @property
+    def partitions(self):
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+
 
 ### Additional streams below that may use output from streaming all tickers ###
 
 
-class TickerDetailsStream(PolygonRestStream):
+class TickerDetailsStream(TickerPartitionedStream):
     name = "ticker_details"
     primary_keys = ["ticker"]
 
@@ -236,7 +218,7 @@ class TickerTypesStream(PolygonRestStream):
             yield tt
 
 
-class RelatedCompaniesStream(PolygonRestStream):
+class RelatedCompaniesStream(TickerPartitionedStream):
     name = "related_companies"
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
@@ -255,13 +237,13 @@ class RelatedCompaniesStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v1/related-companies/{ticker}"
 
-    @staticmethod
-    def clean_record(record: dict, ticker: str) -> None:
-        record["related_company"] = record["ticker"]
-        record["ticker"] = ticker
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["related_company"] = row["ticker"]
+        row["ticker"] = context.get("ticker")
+        return row
 
 
-class CustomBarsStream(PolygonRestStream):
+class CustomBarsStream(TickerPartitionedStream):
     name = "custom_bars"
 
     primary_keys = ["timestamp", "ticker"]
@@ -298,12 +280,7 @@ class CustomBarsStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    @staticmethod
-    def clean_record(record, ticker) -> None:
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
         rename_map = {
             "t": "timestamp",
             "o": "open",
@@ -314,20 +291,21 @@ class CustomBarsStream(PolygonRestStream):
             "vw": "vwap",
             "n": "transactions",
         }
-
         for old_key, new_key in rename_map.items():
-            if old_key in record:
-                record[new_key] = record.pop(old_key)
+            if old_key in row:
+                row[new_key] = row.pop(old_key)
 
-        record["ticker"] = ticker
-        record["otc"] = record.get("otc", None)
-        record["timestamp"] = safe_parse_datetime(record["timestamp"]).isoformat()
+        row["ticker"] = context.get("ticker")
+        row["otc"] = row.get("otc", None)
+        row["timestamp"] = safe_parse_datetime(row["timestamp"]).isoformat()
+        return row
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
     name = "daily_market_summary"
     primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     schema = th.PropertiesList(
@@ -355,8 +333,10 @@ class DailyMarketSummaryStream(PolygonRestStream):
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v2/aggs/grouped/locale/us/market/stocks/{date}"
 
-    @staticmethod
-    def clean_record(record, ticker=None):
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        if "t" not in row:
+            logging.warning(f"Key 't' not found in record, likely metadata field ---> Skipping row... {row}")
+            return None
         mapping = {
             "T": "ticker",
             "t": "timestamp",
@@ -370,14 +350,16 @@ class DailyMarketSummaryStream(PolygonRestStream):
             "otc": "otc",
         }
         for old_key, new_key in mapping.items():
-            if old_key in record:
-                record[new_key] = record.pop(old_key)
-        record["timestamp"] = safe_parse_datetime(record["timestamp"])
+            if old_key in row:
+                row[new_key] = row.pop(old_key)
+        if "timestamp" in row:
+            row["timestamp"] = safe_parse_datetime(row["timestamp"])
+        return row
 
-
-class DailyTickerSummaryStream(PolygonRestStream):
+class DailyTickerSummaryStream(TickerPartitionedStream):
     name = "daily_ticker_summary"
     replication_key = "from"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["symbol", "from"]
@@ -409,17 +391,13 @@ class DailyTickerSummaryStream(PolygonRestStream):
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v1/open-close/{ticker}/{date}"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    @staticmethod
-    def clean_record(record, ticker=None):
-        record["pre_market"] = record.pop("preMarket", None)
-        record["after_hours"] = record.pop("afterHours", None)
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["pre_market"] = row.pop("preMarket", None)
+        row["after_hours"] = row.pop("afterHours", None)
+        return row
 
 
-class PreviousDayBarSummaryStream(PolygonRestStream):
+class PreviousDayBarSummaryStream(TickerPartitionedStream):
     """Retrieve the previous trading day's OHLCV data for a specified stock ticker.
     Not really useful given we have the other streams."""
 
@@ -427,6 +405,7 @@ class PreviousDayBarSummaryStream(PolygonRestStream):
 
     primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     schema = th.PropertiesList(
@@ -452,12 +431,7 @@ class PreviousDayBarSummaryStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v2/aggs/ticker/{ticker}/prev"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    @staticmethod
-    def clean_record(record, ticker=None):
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
         mapping = {
             "T": "ticker",
             "t": "timestamp",
@@ -471,9 +445,10 @@ class PreviousDayBarSummaryStream(PolygonRestStream):
             "otc": "otc",
         }
         for old_key, new_key in mapping.items():
-            if old_key in record:
-                record[new_key] = record.pop(old_key)
-        record["timestamp"] = safe_parse_datetime(record["timestamp"])
+            if old_key in row:
+                row[new_key] = row.pop(old_key)
+        row["timestamp"] = safe_parse_datetime(row["timestamp"])
+        return row
 
 
 class TickerSnapshotStream(PolygonRestStream):
@@ -515,6 +490,7 @@ class TopMarketMoversStream(PolygonRestStream):
 
     name = "top_market_movers"
     replication_key = "updated"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["updated", "ticker"]
@@ -535,7 +511,6 @@ class TopMarketMoversStream(PolygonRestStream):
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
-
         self._use_cached_tickers = False
 
     def get_url(self, context: Context):
@@ -554,7 +529,7 @@ class TopMarketMoversStream(PolygonRestStream):
                 data = requests.get(url, params=self.query_params)
                 for record in data.json().get("tickers"):
                     record["direction"] = direction
-                    self.clean_record(record)
+                    self.post_process(record)
                     yield record
         else:
             direction = self.path_params.get("direction")
@@ -562,11 +537,10 @@ class TopMarketMoversStream(PolygonRestStream):
             data = requests.get(url, params=self.query_params)
             for record in data.json().get("tickers"):
                 record["direction"] = direction
-                self.clean_record(record)
+                self.post_process(record)
                 yield record
 
-    @staticmethod
-    def clean_record(record: dict, ticker=None) -> dict:
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
         def to_snake_case(s):
             return re.sub(r"(?<!^)(?=[A-Z])", "_", s).lower()
 
@@ -579,11 +553,12 @@ class TopMarketMoversStream(PolygonRestStream):
                     clean_keys(value)
                 d[new_key] = value
 
-        clean_keys(record)
-        record["updated"] = safe_parse_datetime(record["updated"])
+        clean_keys(row)
+        row["updated"] = safe_parse_datetime(row["updated"])
+        return row
 
 
-class TradeStream(PolygonRestStream):
+class TradeStream(TickerPartitionedStream):
     """
     Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
     Each record includes price, size, exchange, trade conditions, and precise timestamp information.
@@ -637,20 +612,15 @@ class TradeStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v3/trades/{ticker}"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    def clean_record(self, record: dict, ticker: str | None = None) -> dict:
-        dt = record.get(self.replication_key)
-        parsed_dt = safe_parse_datetime(dt)
-        record[self.replication_key] = parsed_dt.isoformat() if parsed_dt else None
-        return record
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row[self.replication_key] = safe_parse_datetime(row[self.replication_key]).isoformat()
+        return row
 
 
-class QuoteStream(TradeStream):
+class QuoteStream(TickerPartitionedStream):
     name = "quotes"
     replication_key = "sip_timestamp"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
@@ -676,22 +646,16 @@ class QuoteStream(TradeStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v3/quotes/{ticker}"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    @staticmethod
-    def clean_record(record: dict, ticker: str) -> dict:
-        record["ticker"] = ticker
-        for ts_field in ["sip_timestamp", "participant_timestamp", "trf_timestamp"]:
-            if ts_field in record:
-                record[ts_field] = safe_parse_datetime(record[ts_field])
-        return record
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["ticker"] = context.get("ticker")
+        row[self.replication_key] = safe_parse_datetime(row[self.replication_key]).isoformat()
+        return row
 
 
-class LastQuoteStream(PolygonRestStream):
+class LastQuoteStream(TickerPartitionedStream):
     name = "last_quote"
     replication_key = "t"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
     primary_keys = ["ticker", "t", "q"]
     schema = th.PropertiesList(
@@ -701,14 +665,14 @@ class LastQuoteStream(PolygonRestStream):
         th.Property("T", th.StringType),
         th.Property("X", th.IntegerType),
         th.Property("c", th.ArrayType(th.IntegerType)),
-        th.Property("f", th.DateTimeType),  # TRF nanoseconds to ISO8601
+        th.Property("f", th.IntegerType),  # TRF nanoseconds
         th.Property("i", th.ArrayType(th.IntegerType)),
         th.Property("p", th.NumberType),
         th.Property("q", th.IntegerType),
         th.Property("s", th.IntegerType),
-        th.Property("t", th.DateTimeType),  # SIP nanoseconds to ISO8601
+        th.Property("t", th.DateTimeType),  # SIP nanoseconds
         th.Property("x", th.IntegerType),
-        th.Property("y", th.DateTimeType),  # Participant ns to ISO8601
+        th.Property("y", th.IntegerType),  # Participant ns
         th.Property("z", th.IntegerType),
     ).to_dict()
 
@@ -716,20 +680,13 @@ class LastQuoteStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/v2/last/nbbo/{ticker}"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-    @staticmethod
-    def clean_record(record: dict, ticker: str):
-        record["ticker"] = ticker
-        for ts_field in ["t", "f", "y"]:
-            if ts_field in record and record[ts_field] is not None:
-                record[ts_field] = safe_parse_datetime(record[ts_field])
-        return record
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["ticker"] = context.get("ticker")
+        row[self.replication_key] = safe_parse_datetime(row[self.replication_key]).isoformat()
+        return row
 
 
-class IndicatorStream(PolygonRestStream):
+class IndicatorStream(TickerPartitionedStream):
     schema = th.PropertiesList(
         th.Property("timestamp", th.DateTimeType),  # Indicator value timestamp
         th.Property("underlying_timestamp", th.DateTimeType),
@@ -748,6 +705,8 @@ class IndicatorStream(PolygonRestStream):
     ).to_dict()
 
     replication_key = "timestamp"
+    replication_method = "INCREMENTAL"
+    is_timestamp_replication_key = True
 
     primary_keys = ["ticker", "indicator", "series_window_timespan", "timestamp"]
 
@@ -762,16 +721,18 @@ class IndicatorStream(PolygonRestStream):
 
     def get_url(self, context: Context):
         ticker = context.get("ticker")
+        if ticker is None:
+            logging.info('hi')
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
-    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
+    def parse_response(self, record: dict, context: dict) -> t.Iterable[dict]:
         # Flatten a single API record (which may have many "values") into flat records
         agg_window = self.query_params.get("window")
         agg_timespan = self.query_params.get("timespan")
         agg_series_type = self.query_params.get("series_type")
         series_window_timespan = f"{agg_series_type}_{agg_timespan}_{agg_window}"
 
-        aggregates = (response.get("underlying") or {}).get("aggregates", [])
+        aggregates = (record.get("underlying") or {}).get("aggregates", [])
         agg_ts_map = []
         for agg in aggregates:
             ts = agg.get("t")
@@ -792,7 +753,7 @@ class IndicatorStream(PolygonRestStream):
                     right = mid - 1
             return result or {}
 
-        for value in response.get("values", []):
+        for value in record.get("values", []):
             ts = value.get("timestamp")
             if isinstance(ts, (int, float)):
                 ts = safe_parse_datetime(ts).isoformat()
@@ -800,7 +761,7 @@ class IndicatorStream(PolygonRestStream):
             matching_agg = find_closest_agg(ts)
 
             yield {
-                "ticker": response.get("ticker") or context.get("ticker"),
+                "ticker": record.get("ticker") or context.get("ticker"),
                 "indicator": self.name,
                 "series_window_timespan": series_window_timespan,
                 "timestamp": ts,
@@ -940,11 +901,12 @@ class MarketStatusStream(PolygonRestStream):
         market_status = self.client.get_market_status()
         yield asdict(market_status)
 
-    def clean_record(self, record: dict, **kwargs) -> dict:
-        record["after_hours"] = record.pop("afterHours", None)
-        record["early_hours"] = record.pop("earlyHours", None)
-        record["indices_groups"] = record.pop("indicesGroups", None)
-        record["server_time"] = record.pop("serverTime", None)
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["after_hours"] = row.pop("afterHours", None)
+        row["early_hours"] = row.pop("earlyHours", None)
+        row["indices_groups"] = row.pop("indicesGroups", None)
+        row["server_time"] = row.pop("serverTime", None)
+        return row
 
 
 class ConditionCodesStream(PolygonRestStream):
@@ -1071,15 +1033,17 @@ class IPOsStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/ipos"
 
-    def clean_record(self, record: dict, ticker=None) -> dict:
-        record["ipo_status"] = record["ipo_status"].lower()
+    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+        row["ipo_status"] = row["ipo_status"].lower()
+        return row
 
 
-class SplitsStream(PolygonRestStream):
+class SplitsStream(TickerPartitionedStream):
     """Splits Stream"""
 
     name = "splits"
     replication_key = "execution_date"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["id"]
@@ -1100,16 +1064,13 @@ class SplitsStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/splits"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
-
-class DividendsStream(PolygonRestStream):
+class DividendsStream(TickerPartitionedStream):
     """Dividends Stream"""
 
     name = "dividends"
-    replication_key = "ex_dividend_date"
+    replication_key = "timestamp_extracted"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["id"]
@@ -1135,9 +1096,12 @@ class DividendsStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/dividends"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+    def post_process(  # noqa: PLR6301
+        self,
+        row: types.Record,
+        context: types.Context | None = None,  # noqa: ARG002
+    ) -> dict | None:
+        row["timestamp_extracted"] = datetime.utcnow().isoformat()
 
 
 class TickerEventsStream(PolygonRestStream):
@@ -1164,11 +1128,11 @@ class TickerEventsStream(PolygonRestStream):
         ticker = context.get("ticker")
         return f"{self.url_base}/vX/reference/tickers/{ticker}/events"
 
-    def parse_response(self, response: dict, context: dict) -> t.Iterable[dict]:
+    def parse_response(self, record: dict, context: dict) -> t.Iterable[dict]:
         parent_fields = ["name", "composite_figi", "cik"]
-        events = response.get("events", [])
+        events = record.get("events", [])
         for event in events:
-            flat_event = {pf: response.get(pf) for pf in parent_fields}
+            flat_event = {pf: record.get(pf) for pf in parent_fields}
             flat_event["date"] = event.get("date")
             flat_event["type"] = event.get("type")
             flat_event["ticker"] = (
@@ -1196,6 +1160,7 @@ class FinancialsStream(PolygonRestStream):
 
     name = "financials"
     replication_key = "acceptance_datetime"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["cik", "end_date", "timeframe"]
@@ -1433,19 +1398,23 @@ class FinancialsStream(PolygonRestStream):
         self._use_cached_tickers = False
 
     def get_url(self, context: Context = None):
+        # Need to modify context inplace here if the timestamp field is not strictly a date
+        query_params = context.get("query_params")
+        date_format = safe_parse_datetime(query_params.get(self._cfg_start_timestamp_key)).date().isoformat()
+        query_params[self._cfg_start_timestamp_key] = date_format  # modify context inplace
         return f"{self.url_base}/vX/reference/financials"
 
     @property
     def partitions(self) -> list[dict]:
-        # return [{"ticker": t["ticker"]} for t in self.tap.get_cached_ciks()]  # need to implement
         return [{"cik": t["cik"]} for t in self.tap.get_cached_tickers()]
 
 
-class ShortInterestStream(PolygonRestStream):
+class ShortInterestStream(TickerPartitionedStream):
     """Short Interest Stream"""
 
     name = "short_interest"
     replication_key = "settlement_date"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["ticker", "settlement_date"]
@@ -1466,16 +1435,13 @@ class ShortInterestStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/vX/short-interest"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
-
-class ShortVolumeStream(PolygonRestStream):
+class ShortVolumeStream(TickerPartitionedStream):
     """Short Volume Stream"""
 
     name = "short_volume"
     replication_key = "date"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["ticker", "date"]
@@ -1506,16 +1472,13 @@ class ShortVolumeStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/vX/short-volume"
 
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
 
-
-class NewsStream(PolygonRestStream):
+class NewsStream(TickerPartitionedStream):
     """News Stream"""
 
     name = "news"
     replication_key = "published_utc"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     primary_keys = ["id"]
@@ -1556,7 +1519,3 @@ class NewsStream(PolygonRestStream):
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
-
-    @property
-    def partitions(self) -> list[dict]:
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
