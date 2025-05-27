@@ -73,7 +73,7 @@ plugins:
       tickers:
         query_params:
           sort: ticker
-        tickers:
+        select_tickers:
           - AAPL
           - META
       ticker_details:

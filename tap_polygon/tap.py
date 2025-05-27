@@ -8,7 +8,6 @@ from singer_sdk import Tap
 from singer_sdk import typing as th
 
 from tap_polygon.client import TickersStream
-
 from tap_polygon.stock_streams import (
     ConditionCodesStream,
     CustomBarsStream,
@@ -31,7 +30,6 @@ from tap_polygon.stock_streams import (
     ShortVolumeStream,
     SmaStream,
     SplitsStream,
-    TickersStream,
     TickerDetailsStream,
     TickerEventsStream,
     TickerTypesStream,
@@ -93,8 +91,6 @@ class TapPolygon(Tap):
             PreviousDayBarSummaryStream(self),
             TopMarketMoversStream(self),
             TradeStream(self),
-            # QuoteStream(self),
-            # LastQuoteStream(self),
             SmaStream(self),
             EmaStream(self),
             MACDStream(self),

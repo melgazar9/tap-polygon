@@ -1,15 +1,15 @@
+import json
 import logging
 import typing as t
 from datetime import datetime, timedelta, timezone
 
 import requests
 from polygon import RESTClient
-
+from singer_sdk import typing as th
 from singer_sdk.exceptions import ConfigValidationError
 from singer_sdk.helpers._state import increment_state
 from singer_sdk.helpers.types import Context
 from singer_sdk.streams import RESTStream
-from singer_sdk import typing as th
 
 
 class PolygonRestStream(RESTStream):
@@ -604,6 +604,7 @@ class TickersStream(PolygonRestStream):
     name = "tickers"
 
     primary_keys = ["cik", "ticker"]
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("cik", th.StringType),
@@ -636,7 +637,7 @@ class TickersStream(PolygonRestStream):
 
     def get_ticker_list(self) -> list[str] | None:
         tickers_cfg = self.config.get("tickers", {})
-        tickers = tickers_cfg.get("tickers") if tickers_cfg else None
+        tickers = tickers_cfg.get("select_tickers") if tickers_cfg else None
 
         if not tickers:
             return None
@@ -671,7 +672,7 @@ class TickersStream(PolygonRestStream):
             logging.info("Pulling all tickers...")
             yield from self.paginate_records(context)
         else:
-            logging.info(f"Pulling specific tickers: {ticker_list}")
+            logging.info(f"Pulling tickers: {ticker_list}")
             for ticker in ticker_list:
                 query_params.update({"ticker": ticker})
                 context["query_params"] = query_params
@@ -690,3 +691,44 @@ class CachedTickerProvider:
             )
             self._tickers = self.tap.get_cached_tickers()
         return self._tickers
+
+
+class TickerPartitionedStream(PolygonRestStream):
+    @property
+    def partitions(self):
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+
+
+class OptionalTickerPartitionStream(PolygonRestStream):
+    _ticker_in_path_params = None
+    _ticker_in_query_params = None
+
+    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
+        """
+        Loops over tickers manually instead of calling built-in partitions for flexibility in meltano.yml other_params.
+        """
+
+        assert (
+            self._ticker_in_path_params is not None
+            or self._ticker_in_query_params is not None
+        ), "Both _ticker_in_path_params and _ticker_in_query_params cannot be None."
+
+        context = context if context is not None else {}
+        base_query_params = self.query_params.copy()
+        base_path_params = self.path_params.copy()
+
+        query_params, path_params = self._update_query_path_params_with_state(
+            context, base_query_params, base_path_params
+        )
+        context["query_params"] = query_params
+        context["path_params"] = path_params
+        if self.use_cached_tickers:
+            ticker_records = self.tap.get_cached_tickers()
+            for ticker_record in ticker_records:
+                if self._ticker_in_query_params:
+                    query_params["ticker"] = ticker_record["ticker"]
+                if self._ticker_in_path_params:
+                    path_params["ticker"] = ticker_record["ticker"]
+                yield from self.paginate_records(context)
+        else:
+            yield from self.paginate_records(context)

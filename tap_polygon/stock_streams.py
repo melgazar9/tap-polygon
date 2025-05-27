@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import typing as t
@@ -11,54 +10,13 @@ from datetime import datetime
 
 import requests
 from singer_sdk import typing as th
-from singer_sdk.helpers import types
 from singer_sdk.helpers.types import Context, Record
 
-from tap_polygon.client import PolygonRestStream, TickersStream
-
-
-class TickerPartitionedStream(PolygonRestStream):
-    @property
-    def partitions(self):
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
-
-
-class OptionalTickerPartitionStream(PolygonRestStream):
-    _ticker_in_path_params = None
-    _ticker_in_query_params = None
-
-    def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
-        """
-        Loops over tickers manually instead of calling built-in partitions for flexibility in meltano.yml other_params.
-        """
-
-        assert (
-            self._ticker_in_path_params is not None
-            or self._ticker_in_query_params is not None
-        ), "Both _ticker_in_path_params and _ticker_in_query_params cannot be None."
-
-        context = context if context is not None else {}
-        base_query_params = self.query_params.copy()
-        base_path_params = self.path_params.copy()
-
-        query_params, path_params = self._update_query_path_params_with_state(
-            context, base_query_params, base_path_params
-        )
-        context["query_params"] = query_params
-        context["path_params"] = path_params
-        if self.use_cached_tickers:
-            ticker_records = self.tap.get_cached_tickers()
-            for ticker_record in ticker_records:
-                if self._ticker_in_query_params:
-                    query_params["ticker"] = ticker_record["ticker"]
-                if self._ticker_in_path_params:
-                    path_params["ticker"] = ticker_record["ticker"]
-                yield from self.paginate_records(context)
-        else:
-            yield from self.paginate_records(context)
-
-
-### Additional streams below that may use output from streaming all tickers ###
+from tap_polygon.client import (
+    OptionalTickerPartitionStream,
+    PolygonRestStream,
+    TickerPartitionedStream,
+)
 
 
 class TickerDetailsStream(TickerPartitionedStream):
@@ -203,7 +161,8 @@ class CustomBarsStream(TickerPartitionedStream):
         super().__init__(tap)
         self.tap = tap
 
-    def build_path_params(self, path_params: dict) -> str:
+    @staticmethod
+    def build_path_params(path_params: dict) -> str:
         keys = ["multiplier", "timespan", "from", "to"]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
@@ -1364,7 +1323,6 @@ class FinancialsStream(PolygonRestStream):
         th.Property("tickers", th.ArrayType(th.StringType)),
         th.Property("timeframe", th.StringType),
         th.Property("replication_key", th.DateType),
-
     ).to_dict()
 
     def __init__(self, tap):
