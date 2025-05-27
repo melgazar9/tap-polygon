@@ -33,7 +33,7 @@ plugins:
       description: Initial date to start extracting data from
 
     select:
-      - stock_tickers.*
+      - tickers.*
       - ticker_details.*
       - ticker_types.*
       - related_companies.*
@@ -70,7 +70,7 @@ plugins:
       # The tickers that are set here persist across all streams that require a single stock ticker as input.
       # To run different tickers across different streams you need to call the tap N times,
       # where N is the number of distinct groups of ticker.
-      stock_tickers:
+      tickers:
         query_params:
           sort: ticker
         tickers:
@@ -182,6 +182,7 @@ plugins:
             filing_date.gte: "2025-05-01"
             filing_date.lte: "2025-05-30"
             order: asc
+            include_sources: true
             limit: 100
       short_interest:
         - query_params:

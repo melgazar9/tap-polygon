@@ -4,10 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 from polygon import RESTClient
+
 from singer_sdk.exceptions import ConfigValidationError
 from singer_sdk.helpers._state import increment_state
 from singer_sdk.helpers.types import Context
 from singer_sdk.streams import RESTStream
+from singer_sdk import typing as th
 
 
 class PolygonRestStream(RESTStream):
@@ -594,3 +596,97 @@ class PolygonRestStream(RESTStream):
                 )
                 return True
         return False
+
+
+class TickersStream(PolygonRestStream):
+    """Fetch all tickers from Polygon."""
+
+    name = "tickers"
+
+    primary_keys = ["cik", "ticker"]
+
+    schema = th.PropertiesList(
+        th.Property("cik", th.StringType),
+        th.Property("ticker", th.StringType),
+        th.Property("name", th.StringType),
+        th.Property("active", th.BooleanType),
+        th.Property("currency_symbol", th.StringType),
+        th.Property("currency_name", th.StringType),
+        th.Property("base_currency_symbol", th.StringType),
+        th.Property("composite_figi", th.StringType),
+        th.Property("base_currency_name", th.StringType),
+        th.Property("delisted_utc", th.StringType),
+        th.Property("last_updated_utc", th.StringType),
+        th.Property("locale", th.StringType),
+        th.Property("market", th.StringType),
+        th.Property("primary_exchange", th.StringType),
+        th.Property("share_class_figi", th.StringType),
+        th.Property("type", th.StringType),
+        th.Property("source_feed", th.StringType),
+    ).to_dict()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _break_loop_check(self, next_url, replication_key_value=None) -> bool:
+        return not next_url
+
+    def get_url(self, context: Context = None) -> str:
+        return f"{self.url_base}/v3/reference/tickers"
+
+    def get_ticker_list(self) -> list[str] | None:
+        tickers_cfg = self.config.get("tickers", {})
+        tickers = tickers_cfg.get("tickers") if tickers_cfg else None
+
+        if not tickers:
+            return None
+
+        if isinstance(tickers, str):
+            if tickers == "*":
+                return None
+            try:
+                parsed = json.loads(tickers)
+                if parsed == ["*"]:
+                    return None
+                return parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                return [tickers]
+
+        if isinstance(tickers, list):
+            if tickers == ["*"]:
+                return None
+            return tickers
+        return None
+
+    def get_child_context(self, record, context):
+        return {"ticker": record.get("ticker")}
+
+    def get_records(
+        self, context: dict[str, t.Any] | None
+    ) -> t.Iterable[dict[str, t.Any]]:
+        context = {} if context is None else context
+        ticker_list = self.get_ticker_list()
+        query_params = self.query_params.copy()
+        if not ticker_list:
+            logging.info("Pulling all tickers...")
+            yield from self.paginate_records(context)
+        else:
+            logging.info(f"Pulling specific tickers: {ticker_list}")
+            for ticker in ticker_list:
+                query_params.update({"ticker": ticker})
+                context["query_params"] = query_params
+                yield from self.paginate_records(context)
+
+
+class CachedTickerProvider:
+    def __init__(self, tap):
+        self.tap = tap
+        self._tickers = None
+
+    def get_tickers(self):
+        if self._tickers is None:
+            logging.info(
+                "Tickers have not been downloaded yet. Retrieving from tap cache..."
+            )
+            self._tickers = self.tap.get_cached_tickers()
+        return self._tickers
