@@ -11,6 +11,7 @@ from datetime import datetime
 
 import requests
 from singer_sdk import typing as th
+from singer_sdk.helpers import types
 from singer_sdk.helpers.types import Context, Record
 
 from tap_polygon.client import PolygonRestStream
@@ -338,7 +339,7 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
-        th.Property("timestamp", th.DateType),
+        th.Property("timestamp", th.DateTimeType),
         th.Property("open", th.NumberType),
         th.Property("high", th.NumberType),
         th.Property("low", th.NumberType),
@@ -1209,6 +1210,11 @@ def _financial_metric_property(name: str):
             th.Property("order", th.IntegerType),
             th.Property("unit", th.StringType),
             th.Property("value", th.NumberType),
+            th.Property("source", th.StringType),
+            th.Property("derived_from", th.ArrayType(th.StringType)),
+            th.Property("derived_from", th.ArrayType(th.StringType)),
+            th.Property("formula", th.StringType),
+            th.Property("xpath", th.StringType),
         ),
     )
 
@@ -1219,7 +1225,7 @@ class FinancialsStream(PolygonRestStream):
     name = "financials"
 
     primary_keys = ["cik", "end_date", "timeframe"]
-    replication_key = "acceptance_datetime"
+    replication_key = "filing_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
@@ -1451,6 +1457,8 @@ class FinancialsStream(PolygonRestStream):
         th.Property("start_date", th.StringType),
         th.Property("tickers", th.ArrayType(th.StringType)),
         th.Property("timeframe", th.StringType),
+        th.Property("replication_key", th.DateType),
+
     ).to_dict()
 
     def __init__(self, tap):
