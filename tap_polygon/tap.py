@@ -7,7 +7,7 @@ import typing as t
 from singer_sdk import Tap
 from singer_sdk import typing as th
 
-from tap_polygon.stock_streams import (  # CachedTickerProvider,; QuoteStream,; LastQuoteStream,
+from tap_polygon.stock_streams import (
     ConditionCodesStream,
     CustomBarsStream,
     DailyMarketSummaryStream,
@@ -35,7 +35,17 @@ from tap_polygon.stock_streams import (  # CachedTickerProvider,; QuoteStream,; 
     TickerTypesStream,
     TopMarketMoversStream,
     TradeStream,
+    TreasuryYieldStream,
 )
+
+# Streams to implement later:
+# - TickerSnapshotStream
+# - FullMarketSnapshotStream
+# - UnifiedSnapshotStream
+
+# Streams not imported because advanced subscription is required
+# - QuoteStream
+# - LastQuoteStream
 
 
 class TapPolygon(Tap):
@@ -99,6 +109,7 @@ class TapPolygon(Tap):
             ShortInterestStream(self),
             ShortVolumeStream(self),
             NewsStream(self),
+            TreasuryYieldStream(self),
         ]
 
         return streams

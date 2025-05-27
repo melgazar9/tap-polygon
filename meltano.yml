@@ -60,6 +60,7 @@ plugins:
       - short_interest.*
       - short_volume.*
       - news.*
+      - treasury_yields.*
 
     config:
       start_date: '2020-01-01T00:00:00Z'
@@ -198,6 +199,11 @@ plugins:
             published_utc.gte: "2025-05-21"
             published_utc.lte: "2025-05-23"
             order: asc
+      treasury_yields:
+        - query_params:
+            date.gte: "2025-05-01"
+            date.lte: "2025-05-30"
+            limit: 5000
 
   loaders:
   - name: target-jsonl

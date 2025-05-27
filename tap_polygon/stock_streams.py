@@ -156,6 +156,7 @@ class OptionalTickerPartitionStream(PolygonRestStream):
 
 class TickerDetailsStream(TickerPartitionedStream):
     name = "ticker_details"
+
     primary_keys = ["ticker"]
 
     schema = th.PropertiesList(
@@ -223,6 +224,7 @@ class TickerTypesStream(PolygonRestStream):
     """TickerTypesStream - does not require pagination so use Polygon's RESTClient() to fetch the data."""
 
     name = "ticker_types"
+
     primary_keys = ["code"]
 
     schema = th.PropertiesList(
@@ -243,12 +245,13 @@ class TickerTypesStream(PolygonRestStream):
 
 class RelatedCompaniesStream(TickerPartitionedStream):
     name = "related_companies"
+
+    primary_keys = ["ticker"]
+
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
         th.Property("related_company", th.StringType),
     ).to_dict()
-
-    primary_keys = ["ticker"]
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -268,11 +271,11 @@ class CustomBarsStream(TickerPartitionedStream):
     name = "custom_bars"
 
     primary_keys = ["timestamp", "ticker"]
-
     replication_key = "timestamp"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
     is_sorted = False  # Polygon cannot guarantee sorted records across pages
+
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ms"
 
@@ -324,10 +327,13 @@ class CustomBarsStream(TickerPartitionedStream):
 
 class DailyMarketSummaryStream(PolygonRestStream):
     name = "daily_market_summary"
+
     primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
+
+    _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
 
     schema = th.PropertiesList(
@@ -342,8 +348,6 @@ class DailyMarketSummaryStream(PolygonRestStream):
         th.Property("transactions", th.NumberType),
         th.Property("otc", th.BooleanType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -383,12 +387,13 @@ class DailyMarketSummaryStream(PolygonRestStream):
 
 class DailyTickerSummaryStream(TickerPartitionedStream):
     name = "daily_ticker_summary"
+
+    primary_keys = ["symbol", "from"]
     replication_key = "from"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
-    _incremental_timestamp_is_date = True
 
-    primary_keys = ["symbol", "from"]
+    _incremental_timestamp_is_date = True
 
     schema = th.PropertiesList(
         th.Property("symbol", th.StringType),
@@ -511,11 +516,13 @@ class TopMarketMoversStream(PolygonRestStream):
     """
 
     name = "top_market_movers"
+
+    primary_keys = ["updated", "ticker"]
     replication_key = "updated"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
-    primary_keys = ["updated", "ticker"]
+    _use_cached_tickers_default = False
 
     schema = th.PropertiesList(
         th.Property("updated", th.DateTimeType),
@@ -529,8 +536,6 @@ class TopMarketMoversStream(PolygonRestStream):
         th.Property("todays_change_percent", th.NumberType),
         th.Property("fair_market_value", th.BooleanType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -598,18 +603,20 @@ class TradeStream(TickerPartitionedStream):
     """
 
     name = "trades"
-    replication_key = "sip_timestamp"
-    replication_method = "INCREMENTAL"
-    is_timestamp_replication_key = True
-    is_sorted = False
-    _api_expects_unix_timestamp = True
-    _unix_timestamp_unit = "ns"
 
     primary_keys = [
         "ticker",
         "exchange",
         "id",
-    ]  # if duplicate records add sip_timestamp
+    ]  # if there happen to be duplicate records, then add sip_timestamp
+
+    replication_key = "sip_timestamp"
+    replication_method = "INCREMENTAL"
+    is_timestamp_replication_key = True
+    is_sorted = False
+
+    _api_expects_unix_timestamp = True
+    _unix_timestamp_unit = "ns"
 
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
@@ -644,13 +651,15 @@ class TradeStream(TickerPartitionedStream):
 
 class QuoteStream(TickerPartitionedStream):
     name = "quotes"
+
+    primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
     replication_key = "sip_timestamp"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
+    is_sorted = False
+
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ns"
-
-    primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
 
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
@@ -683,10 +692,12 @@ class QuoteStream(TickerPartitionedStream):
 
 class LastQuoteStream(TickerPartitionedStream):
     name = "last_quote"
+
+    primary_keys = ["ticker", "t", "q"]
     replication_key = "t"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
-    primary_keys = ["ticker", "t", "q"]
+
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
         th.Property("P", th.NumberType),
@@ -718,6 +729,14 @@ class LastQuoteStream(TickerPartitionedStream):
 
 
 class IndicatorStream(TickerPartitionedStream):
+    primary_keys = ["ticker", "indicator", "series_window_timespan", "timestamp"]
+    replication_key = "timestamp"
+    replication_method = "INCREMENTAL"
+    is_timestamp_replication_key = True
+
+    _api_expects_unix_timestamp = True
+    _unix_timestamp_unit = "ms"
+
     schema = th.PropertiesList(
         th.Property("timestamp", th.DateTimeType),  # Indicator value timestamp
         th.Property("underlying_timestamp", th.DateTimeType),
@@ -734,14 +753,6 @@ class IndicatorStream(TickerPartitionedStream):
         th.Property("underlying_vwap", th.NumberType),
         th.Property("underlying_transactions", th.IntegerType),
     ).to_dict()
-
-    replication_key = "timestamp"
-    replication_method = "INCREMENTAL"
-    is_timestamp_replication_key = True
-    _api_expects_unix_timestamp = True
-    _unix_timestamp_unit = "ms"
-
-    primary_keys = ["ticker", "indicator", "series_window_timespan", "timestamp"]
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -831,7 +842,10 @@ class ExchangesStream(PolygonRestStream):
     """Fetch Exchanges"""
 
     name = "exchanges"
+
     primary_keys = ["id"]
+
+    _use_cached_tickers_default = False
 
     schema = th.PropertiesList(
         th.Property("id", th.IntegerType),
@@ -845,8 +859,6 @@ class ExchangesStream(PolygonRestStream):
         th.Property("participant_id", th.StringType),
         th.Property("url", th.StringType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -863,6 +875,8 @@ class MarketHolidaysStream(PolygonRestStream):
 
     primary_keys = ["exchange", "name", "date"]
 
+    _use_cached_tickers_default = False
+
     schema = th.PropertiesList(
         th.Property("close", th.StringType),
         th.Property("date", th.StringType),
@@ -871,8 +885,6 @@ class MarketHolidaysStream(PolygonRestStream):
         th.Property("open", th.StringType),
         th.Property("status", th.StringType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -947,6 +959,8 @@ class ConditionCodesStream(PolygonRestStream):
 
     primary_keys = ["id", "asset_class", "type"]
 
+    _use_cached_tickers_default = False
+
     schema = th.PropertiesList(
         th.Property("id", th.IntegerType),
         th.Property("abbreviation", th.StringType),
@@ -1005,8 +1019,6 @@ class ConditionCodesStream(PolygonRestStream):
         ),
     ).to_dict()
 
-    _use_cached_tickers_default = False
-
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
@@ -1023,9 +1035,10 @@ class IPOsStream(OptionalTickerPartitionStream):
     primary_keys = ["ticker", "listing_date", "announced_date"]
     replication_key = "listing_date"
     replication_method = "INCREMENTAL"
+
+    _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
     _ticker_in_query_params = True
-    _use_cached_tickers_default = False
 
     schema = th.PropertiesList(
         th.Property("announced_date", th.DateType),
@@ -1078,13 +1091,15 @@ class SplitsStream(OptionalTickerPartitionStream):
     """Splits Stream"""
 
     name = "splits"
+
+    primary_keys = ["id"]
     replication_key = "execution_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
+
+    _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
     _ticker_in_query_params = True
-
-    primary_keys = ["id"]
 
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
@@ -1093,8 +1108,6 @@ class SplitsStream(OptionalTickerPartitionStream):
         th.Property("split_to", th.NumberType),
         th.Property("ticker", th.StringType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -1116,13 +1129,15 @@ class DividendsStream(OptionalTickerPartitionStream):
     """
 
     name = "dividends"
+
+    primary_keys = ["id"]
     replication_key = "ex_dividend_date"
     replication_method = "FULL_REFRESH"
     is_timestamp_replication_key = True
+
+    _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
     _ticker_in_query_params = True
-
-    primary_keys = ["id"]
 
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
@@ -1137,8 +1152,6 @@ class DividendsStream(OptionalTickerPartitionStream):
         th.Property("frequency", th.IntegerType),
     ).to_dict()
 
-    _use_cached_tickers_default = False
-
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
@@ -1151,7 +1164,10 @@ class TickerEventsStream(TickerPartitionedStream):
     """Ticker Events Stream"""
 
     name = "ticker_events"
+
     primary_keys = ["cik", "name", "date", "type"]
+
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("name", th.StringType),
@@ -1161,8 +1177,6 @@ class TickerEventsStream(TickerPartitionedStream):
         th.Property("type", th.StringType),
         th.Property("ticker", th.StringType),
     ).to_dict()
-
-    _ticker_in_path_params = True
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -1203,11 +1217,13 @@ class FinancialsStream(PolygonRestStream):
     """Financials Stream"""
 
     name = "financials"
+
+    primary_keys = ["cik", "end_date", "timeframe"]
     replication_key = "acceptance_datetime"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
-    primary_keys = ["cik", "end_date", "timeframe"]
+    _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
 
     schema = th.PropertiesList(
@@ -1437,8 +1453,6 @@ class FinancialsStream(PolygonRestStream):
         th.Property("timeframe", th.StringType),
     ).to_dict()
 
-    _use_cached_tickers_default = False
-
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
@@ -1455,12 +1469,14 @@ class ShortInterestStream(TickerPartitionedStream):
     """Short Interest Stream"""
 
     name = "short_interest"
+
+    primary_keys = ["ticker", "settlement_date"]
     replication_key = "settlement_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
-    _incremental_timestamp_is_date = True
 
-    primary_keys = ["ticker", "settlement_date"]
+    _use_cached_tickers_default = False
+    _incremental_timestamp_is_date = True
 
     schema = th.PropertiesList(
         th.Property("settlement_date", th.DateType),
@@ -1469,8 +1485,6 @@ class ShortInterestStream(TickerPartitionedStream):
         th.Property("avg_daily_volume", th.IntegerType),
         th.Property("days_to_cover", th.NumberType),
     ).to_dict()
-
-    _use_cached_tickers_default = False
 
     def __init__(self, tap):
         super().__init__(tap)
@@ -1484,12 +1498,14 @@ class ShortVolumeStream(TickerPartitionedStream):
     """Short Volume Stream"""
 
     name = "short_volume"
+
+    primary_keys = ["ticker", "date"]
     replication_key = "date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
-    _incremental_timestamp_is_date = True
 
-    primary_keys = ["ticker", "date"]
+    _use_cached_tickers_default = False
+    _incremental_timestamp_is_date = True
 
     schema = th.PropertiesList(
         th.Property("date", th.DateType),
@@ -1509,8 +1525,6 @@ class ShortVolumeStream(TickerPartitionedStream):
         th.Property("nyse_short_volume_exempt", th.IntegerType),
     ).to_dict()
 
-    _use_cached_tickers_default = False
-
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
@@ -1523,11 +1537,13 @@ class NewsStream(TickerPartitionedStream):
     """News Stream"""
 
     name = "news"
+
+    primary_keys = ["id"]
     replication_key = "published_utc"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
-    primary_keys = ["id"]
+    _use_cached_tickers_default = False
 
     publisher_schema = th.ObjectType(
         th.Property("homepage_url", th.StringType),
@@ -1558,11 +1574,45 @@ class NewsStream(TickerPartitionedStream):
         th.Property("image_url", th.StringType),
     ).to_dict()
 
-    _use_cached_tickers_default = False
-
     def __init__(self, tap):
         super().__init__(tap)
         self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
+
+
+class TreasuryYieldStream(PolygonRestStream):
+    """Yield Stream"""
+
+    name = "treasury_yields"
+
+    primary_keys = ["date"]
+    replication_key = "date"
+    replication_method = "INCREMENTAL"
+    is_timestamp_replication_key = True
+
+    _use_cached_tickers_default = False
+    _incremental_timestamp_is_date = True
+
+    schema = th.PropertiesList(
+        th.Property("date", th.DateType),
+        th.Property("yield_1_month", th.NumberType),
+        th.Property("yield_3_month", th.NumberType),
+        th.Property("yield_6_month", th.NumberType),
+        th.Property("yield_1_year", th.NumberType),
+        th.Property("yield_2_year", th.NumberType),
+        th.Property("yield_3_year", th.NumberType),
+        th.Property("yield_5_year", th.NumberType),
+        th.Property("yield_7_year", th.NumberType),
+        th.Property("yield_10_year", th.NumberType),
+        th.Property("yield_20_year", th.NumberType),
+        th.Property("yield_30_year", th.NumberType),
+    ).to_dict()
+
+    def __init__(self, tap):
+        super().__init__(tap)
+        self.tap = tap
+
+    def get_url(self, context: Context = None):
+        return f"{self.url_base}/fed/vX/treasury-yields"
