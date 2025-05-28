@@ -25,10 +25,10 @@ class PolygonRestStream(RESTStream):
         self.client = RESTClient(self.config["rest_api_key"])
         self.parse_config_params()
 
-        self._cfg_start_timestamp_key: str | None = None
-        self._cfg_end_timestamp_key: str | None = None
+        self._cfg_starting_timestamp_key: str | None = None
+        self._cfg_ending_timestamp_key: str | None = None
         self._cfg_starting_timestamp_value: str | None = None
-        self._cfg_end_timestamp_value: str | None = None
+        self._cfg_ending_timestamp_value: str | None = None
 
         self.timestamp_filter_fields = [
             "from",
@@ -69,19 +69,33 @@ class PolygonRestStream(RESTStream):
             "end_date",
             "settlement_date",
         ]
+
         timestamp_filter_suffixes = ["gt", "gte", "lt", "lte"]
+
         self.timestamp_field_combos = self.timestamp_filter_fields + [
             f"{field}.{suffix}"
             for field in self.timestamp_filter_fields
             for suffix in timestamp_filter_suffixes
         ]
 
+        self._starting_timestamp_keys = ["from", "from_"] + [
+            i
+            for i in self.timestamp_field_combos
+            if i.endswith("gte") or i.endswith("gt")
+        ]
+
+        self._ending_timestamp_keys = ["to", "to_"] + [
+            i
+            for i in self.timestamp_field_combos
+            if i.endswith("lte") or i.endswith("lt")
+        ]
+
         self._set_timestamp_config_keys()
 
-        if self._cfg_start_timestamp_key and not self._cfg_starting_timestamp_value:
+        if self._cfg_starting_timestamp_key and not self._cfg_starting_timestamp_value:
             raise ConfigValidationError(
                 f"For stream {self.name} the starting timestamp field "
-                f"'{self._cfg_start_timestamp_key}' is configured but has no value."
+                f"'{self._cfg_starting_timestamp_key}' is configured but has no value."
             )
 
     @staticmethod
@@ -127,65 +141,63 @@ class PolygonRestStream(RESTStream):
         raise AttributeError("use_cached_tickers is not defined in config or class")
 
     def _set_timestamp_config_keys(self) -> None:
-        disallowed_start_keys = {"to", "to_"}
-        allowed_end_keys = {"to", "to_"}
-        for param_source in ("query_params", "path_params"):
-            param_dict = getattr(self, param_source, None)
-            if not param_dict:
-                continue
-            for k, v in param_dict.items():
-                base_key = k.split(".")[0]
+        if self._cfg_starting_timestamp_key and self._cfg_ending_timestamp_key:
+            return None
+
+        for params in (self.query_params.copy(), self.path_params.copy()):
+            for k, v in params.items():
+                if k not in self.timestamp_field_combos:
+                    continue
+
                 if (
-                    k
-                    in [
-                        i
-                        for i in self.timestamp_field_combos
-                        if not i.endswith((".lt", ".lte"))
-                    ]
-                    and base_key not in disallowed_start_keys
+                    not self._cfg_starting_timestamp_key
+                    and k in self.timestamp_field_combos
+                    and k not in self._ending_timestamp_keys
                 ):
-                    self._cfg_start_timestamp_key = k
+                    self._cfg_starting_timestamp_key = k
                     self._cfg_starting_timestamp_value = v
+
                 if (
-                    k
-                    in [
-                        i
-                        for i in self.timestamp_field_combos
-                        if not i.endswith((".gt", ".gte"))
-                    ]
-                    and base_key in allowed_end_keys
+                    not self._cfg_ending_timestamp_key
+                    and k in self.timestamp_field_combos
+                    and k not in self._starting_timestamp_keys
                 ):
-                    self._cfg_end_timestamp_key = k
-                    self._cfg_end_timestamp_value = v
-            if self._cfg_start_timestamp_key:
-                break
+                    self._cfg_ending_timestamp_key = k
+                    self._cfg_ending_timestamp_value = v
+
+                if (
+                    self._cfg_starting_timestamp_key
+                    and self._cfg_ending_timestamp_key
+                    and self._cfg_starting_timestamp_value
+                    and self._cfg_ending_timestamp_value
+                ):
+                    break
+        return None
 
     @property
     def url_base(self) -> str:
         return self.config.get("base_url", "https://api.polygon.io")
 
-    def safe_parse_datetime(self, dt_str: t.Any) -> datetime | None:
-        if isinstance(dt_str, datetime):
+    def safe_parse_datetime(self, dt_value: t.Any) -> datetime | None:
+        if isinstance(dt_value, datetime):
             return (
-                dt_str.replace(tzinfo=timezone.utc) if dt_str.tzinfo is None else dt_str
+                dt_value.replace(tzinfo=timezone.utc)
+                if dt_value.tzinfo is None
+                else dt_value
             )
-        if isinstance(dt_str, (int, float)):
+        if isinstance(dt_value, (int, float)):
             try:
-                seconds = self._timestamp_to_epoch(dt_str)
+                seconds = self._timestamp_to_epoch(dt_value)
                 return datetime.fromtimestamp(seconds, tz=timezone.utc)
             except (ValueError, OSError) as e:
                 logging.warning(
-                    f"Could not parse numeric timestamp: {dt_str}, error: {e}"
+                    f"Could not parse numeric timestamp: {dt_value}, error: {e}"
                 )
                 return None
-        if isinstance(dt_str, str):
-            try:
-                return datetime.fromisoformat(dt_str.replace("Z", "+00:00")).replace(
-                    tzinfo=timezone.utc
-                )
-            except ValueError:
-                logging.warning(f"Could not parse datetime string: {dt_str}")
-                return None
+        if isinstance(dt_value, str):
+            return datetime.fromisoformat(dt_value.replace("Z", "+00:00")).replace(
+                tzinfo=timezone.utc
+            )
         return None
 
     @staticmethod
@@ -193,11 +205,11 @@ class PolygonRestStream(RESTStream):
         if ts is None:
             return None
         if isinstance(ts, (int, float)):
-            if ts > 1e15:  # nanoseconds
+            if abs(ts) > 1e15:  # nanoseconds
                 return ts / 1e9
-            if ts > 1e13:  # microseconds
-                return ts / 1e6
-            if ts > 1e10:  # milliseconds
+            if abs(ts) > 1e13:  # microseconds
+                return abs(ts) / 1e6
+            if abs(ts) > 1e10:  # milliseconds
                 return ts / 1e3
             return float(ts)
         return None
@@ -269,19 +281,39 @@ class PolygonRestStream(RESTStream):
                 if k not in self.timestamp_field_combos
             }
         else:
-            if self.is_timestamp_replication_key and self._cfg_start_timestamp_key:
+            if self.is_timestamp_replication_key and self._cfg_starting_timestamp_key:
                 starting_replication_key_value = (
                     self.get_starting_replication_key_value(context)
                 )
                 if starting_replication_key_value:
-                    if self._cfg_start_timestamp_key in query_params:
-                        query_params[self._cfg_start_timestamp_key] = (
+                    if self._cfg_starting_timestamp_key in query_params:
+                        query_params[self._cfg_starting_timestamp_key] = (
                             starting_replication_key_value
                         )
-                    if self._cfg_start_timestamp_key in path_params:
-                        path_params[self._cfg_start_timestamp_key] = (
+
+                        if self._api_expects_unix_timestamp and not isinstance(
+                            query_params[self._cfg_starting_timestamp_key], int
+                        ):
+                            query_params[self._cfg_starting_timestamp_key] = (
+                                self.iso_to_unix_timestamp(
+                                    query_params[self._cfg_starting_timestamp_key],
+                                    unit=self._unix_timestamp_unit,
+                                )
+                            )
+                    if self._cfg_starting_timestamp_key in path_params:
+                        path_params[self._cfg_starting_timestamp_key] = (
                             starting_replication_key_value
                         )
+
+                        if self._api_expects_unix_timestamp and not isinstance(
+                            path_params[self._cfg_starting_timestamp_key], int
+                        ):
+                            path_params[self._cfg_starting_timestamp_key] = (
+                                self.iso_to_unix_timestamp(
+                                    path_params[self._cfg_starting_timestamp_key],
+                                    unit=self._unix_timestamp_unit,
+                                )
+                            )
         return query_params, path_params
 
     def _prepare_context_and_params(
@@ -301,15 +333,19 @@ class PolygonRestStream(RESTStream):
 
         if (
             self._requires_end_timestamp_in_path_params
-            and self._cfg_end_timestamp_key not in path_params
+            and self._cfg_ending_timestamp_key not in path_params
         ):
-            path_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+            path_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         if (
             self._requires_end_timestamp_in_query_params
-            and self._cfg_end_timestamp_key not in query_params
+            and self._cfg_ending_timestamp_key not in query_params
         ):
-            query_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+            query_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         context["query_params"] = query_params
         context["path_params"] = path_params
@@ -343,10 +379,6 @@ class PolygonRestStream(RESTStream):
         state = self.get_context_state(context)
 
         while True:
-            if self.name != "tickers":
-                logging.info(
-                    f"Fetching records for {self.name} with context: {request_context}"
-                )
             request_url = next_url or self.get_url(request_context)
             query_params_to_log = {
                 k: v for k, v in query_params.items() if k != "apiKey"
@@ -359,7 +391,9 @@ class PolygonRestStream(RESTStream):
                 response.raise_for_status()
                 data = response.json()
             except requests.exceptions.RequestException as e:
-                logging.error(f"Request failed for {self.name} at {request_url}: {e}")
+                logging.error(
+                    f"*** Request failed for {self.name} at {request_url}: {e} ***"
+                )
                 break
             except ValueError as e:
                 logging.error(
@@ -432,8 +466,9 @@ class PolygonRestStream(RESTStream):
 
             next_url = data.get("next_url")
             query_params, path_params = self._update_query_path_params_with_state(
-                context, query_params, path_params
+                context, query_params, path_params, pop_timestamp=True
             )
+
             replication_key_value = self.get_starting_replication_key_value(context)
             if self._break_loop_check(next_url, replication_key_value):
                 break
@@ -480,32 +515,41 @@ class PolygonRestStream(RESTStream):
           params prior to sending a request or building the url endpoint.
         """
         if self.is_timestamp_replication_key:
-            if self._cfg_start_timestamp_key in params:
-                params[self._cfg_start_timestamp_key] = self.safe_parse_datetime(
-                    params[self._cfg_start_timestamp_key]
-                )
+            for timestamp_col in (
+                self._cfg_starting_timestamp_key,
+                self._cfg_ending_timestamp_key,
+            ):
+                if timestamp_col in params:
+                    if self._api_expects_unix_timestamp and isinstance(
+                        params[timestamp_col], int
+                    ):
+                        continue
 
-                if self._incremental_timestamp_is_date:
-                    params[self._cfg_start_timestamp_key] = (
-                        params[self._cfg_start_timestamp_key].date().isoformat()
-                    )
-                else:
-                    params[self._cfg_start_timestamp_key] = params[
-                        self._cfg_start_timestamp_key
-                    ].isoformat()
-                if self._api_expects_unix_timestamp:
-                    assert self._unix_timestamp_unit in (
-                        "s",
-                        "ms",
-                        "ns",
-                    ), (
-                        f"_unix_timestamp_unit in stream {self.name} must be int."
-                        f"Currently it's set to value {self._unix_timestamp_unit}"
-                    )
-                    params[self._cfg_start_timestamp_key] = self.iso_to_unix_timestamp(
-                        params[self._cfg_start_timestamp_key],
-                        unit=self._unix_timestamp_unit,
-                    )
+                    dt_obj = self.safe_parse_datetime(params[timestamp_col])
+
+                    if dt_obj:
+                        if self._api_expects_unix_timestamp:
+                            assert self._unix_timestamp_unit in (
+                                "s",
+                                "ms",
+                                "ns",
+                            ), (
+                                f"_unix_timestamp_unit in stream {self.name} must be 's', 'ms', or 'ns'."
+                                f"Currently it's set to value {self._unix_timestamp_unit}"
+                            )
+                            params[timestamp_col] = self.iso_to_unix_timestamp(
+                                dt_obj.isoformat(),
+                                unit=self._unix_timestamp_unit,
+                            )
+                        elif self._incremental_timestamp_is_date or force_date:
+                            params[timestamp_col] = dt_obj.date().isoformat()
+                        else:
+                            params[timestamp_col] = dt_obj.isoformat()
+                    else:
+                        logging.warning(
+                            f"Could not parse timestamp value '{params[timestamp_col]}' for key '{timestamp_col}'."
+                            f"Skipping normalization."
+                        )
 
     def _get_end_timestamp_value(self):
         """Helper to calculate the end timestamp value based on configuration."""
@@ -544,15 +588,15 @@ class PolygonRestStream(RESTStream):
 
             end_date = datetime.today().date()
 
-            if self._cfg_end_timestamp_key and self._cfg_end_timestamp_value:
+            if self._cfg_ending_timestamp_key and self._cfg_ending_timestamp_value:
                 try:
                     configured_end_date = datetime.strptime(
-                        self._cfg_end_timestamp_value.split("T")[0], "%Y-%m-%d"
+                        self._cfg_ending_timestamp_value.split("T")[0], "%Y-%m-%d"
                     ).date()
                     end_date = min(configured_end_date, end_date)
                 except ValueError:
                     logging.warning(
-                        f"Could not parse _cfg_end_timestamp '{self._cfg_end_timestamp_value}'. Using today's date."
+                        f"Could not parse _cfg_end_timestamp '{self._cfg_ending_timestamp_value}'. Using today's date."
                     )
 
             current_timestamp = start_date
@@ -560,13 +604,13 @@ class PolygonRestStream(RESTStream):
             while current_timestamp <= end_date:
                 context["query_params"] = query_params.copy()
                 context["path_params"] = path_params.copy()
-                if self._cfg_start_timestamp_key in context.get("query_params"):
+                if self._cfg_starting_timestamp_key in context.get("query_params"):
                     context["query_params"][
-                        self._cfg_start_timestamp_key
+                        self._cfg_starting_timestamp_key
                     ] = current_timestamp.isoformat()
-                if self._cfg_start_timestamp_key in context.get("path_params"):
+                if self._cfg_starting_timestamp_key in context.get("path_params"):
                     context["path_params"][
-                        self._cfg_start_timestamp_key
+                        self._cfg_starting_timestamp_key
                     ] = current_timestamp.isoformat()
                 yield from self.paginate_records(context)
                 current_timestamp += timedelta(days=1)
@@ -618,7 +662,7 @@ class PolygonRestStream(RESTStream):
             )
             return False
 
-        if self._cfg_start_timestamp_key:
+        if self._cfg_starting_timestamp_key:
             cutoff_start_dt = self.safe_parse_datetime(
                 self._cfg_starting_timestamp_value
             )
@@ -630,8 +674,8 @@ class PolygonRestStream(RESTStream):
                 )
                 return True
 
-        if self._cfg_end_timestamp_key and self._cfg_end_timestamp_value:
-            cutoff_end_dt = self.safe_parse_datetime(self._cfg_end_timestamp_value)
+        if self._cfg_ending_timestamp_key and self._cfg_ending_timestamp_value:
+            cutoff_end_dt = self.safe_parse_datetime(self._cfg_ending_timestamp_value)
             if cutoff_end_dt and last_ts_dt > cutoff_end_dt:
                 logging.info(
                     f"Latest record timestamp ({last_ts_dt}) in batch exceeds 'to' timestamp ({cutoff_end_dt}). "
@@ -709,8 +753,6 @@ class TickersStream(PolygonRestStream):
         self, context: dict[str, t.Any] | None
     ) -> t.Iterable[dict[str, t.Any]]:
         context = {} if context is None else context
-        if self.name != "tickers":
-            logging.warning("hi")
         ticker_list = self.get_ticker_list()
         query_params = self.query_params.copy()
         if not ticker_list:
@@ -762,15 +804,19 @@ class OptionalTickerPartitionStream(PolygonRestStream):
 
         if (
             self._requires_end_timestamp_in_path_params
-            and self._cfg_end_timestamp_key not in path_params
+            and self._cfg_ending_timestamp_key not in path_params
         ):
-            path_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+            path_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         if (
             self._requires_end_timestamp_in_query_params
-            and self._cfg_end_timestamp_key not in query_params
+            and self._cfg_ending_timestamp_key not in query_params
         ):
-            query_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+            query_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         context["query_params"] = query_params
         context["path_params"] = path_params

@@ -85,8 +85,8 @@ plugins:
         - path_params:
             multiplier: 1
             timespan: "second"
-            from: "2023-01-06"
-            to: "2023-01-09"
+            from: "2025-01-06"
+            to: "2025-01-09"
         - query_params:
             adjusted: true
             sort: "asc"
@@ -124,8 +124,8 @@ plugins:
             order: asc
       sma:
         - query_params:
-            timestamp.gte: "2025-05-20T00:00:00.999Z"
-            timestamp.lte: "2025-05-21T00:00:00.999Z"
+            timestamp.gte: "2025-01-01T00:00:00.999Z"
+            timestamp.lte: "2025-01-30T01:00:00.999Z"
             order: asc
             timespan: hour
             window: 10
@@ -133,8 +133,8 @@ plugins:
             expand_underlying: true
       ema:
         - query_params:
-            timestamp.gte: "2025-05-20T00:00:00.999Z"
-            timestamp.lte: "2025-05-21T00:00:00.999Z"
+            timestamp.gte: "2025-01-01T00:00:00.999Z"
+            timestamp.lte: "2025-01-30T01:00:00.999Z"
             order: asc
             timespan: hour
             window: 10
@@ -142,8 +142,8 @@ plugins:
             expand_underlying: true
       macd:
         - query_params:
-            timestamp.gte: "2025-05-20T00:00:00.999Z"
-            timestamp.lte: "2025-05-21T00:00:00.999Z"
+            timestamp.gte: "2025-01-01T00:00:00.999Z"
+            timestamp.lte: "2025-01-30T01:00:00.999Z"
             order: asc
             timespan: hour
             short_window: 12
@@ -153,8 +153,8 @@ plugins:
             expand_underlying: true
       rsi:
         - query_params:
-            timestamp.gte: "2025-05-20T00:00:00.999Z"
-            timestamp.lte: "2025-05-21T00:00:00.999Z"
+            timestamp.gte: "2025-01-01T00:00:00.999Z"
+            timestamp.lte: "2025-01-30T01:00:00.999Z"
             order: asc
             timespan: hour
             window: 18
@@ -166,21 +166,21 @@ plugins:
             listing_date.lte: "2025-05-30"
       splits:
         - query_params:
-            execution_date.gte: "2025-01-01"
-            execution_date.lte: "2025-05-30"
+            execution_date.gte: "2005-01-01"
+            execution_date.lte: "2005-03-01"
             order: asc
         - other_params:
             use_cached_tickers: true
       dividends:
         - query_params:
-            ex_dividend_date.gte: "2020-05-01"
-            ex_dividend_date.lte: "2020-05-30"
+            ex_dividend_date.gte: "2025-01-01"
+            ex_dividend_date.lte: "2025-01-30"
             order: asc
             limit: 1000
       financials:
         - query_params:
-            filing_date.gte: "2025-05-01"
-            filing_date.lte: "2025-05-30"
+            filing_date.gte: "2025-01-01"
+            filing_date.lte: "2025-03-01"
             order: asc
             include_sources: true
             limit: 100

@@ -162,10 +162,10 @@ class CustomBarsStream(TickerPartitionedStream):
         super().__init__(tap)
         self.tap = tap
 
-        self._cfg_end_timestamp_key = "to"
+        self._cfg_ending_timestamp_key = "to"
 
     def build_path_params(self, path_params: dict) -> str:
-        keys = ["multiplier", "timespan", "from", self._cfg_end_timestamp_key]
+        keys = ["multiplier", "timespan", "from", self._cfg_ending_timestamp_key]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
     def get_url(self, context: Context):
@@ -627,6 +627,19 @@ class IndicatorStream(TickerPartitionedStream):
         super().__init__(tap)
         self.tap = tap
 
+    @staticmethod
+    def find_closest_agg(ts, agg_ts_map):
+        left, right = 0, len(agg_ts_map) - 1
+        result = None
+        while left <= right:
+            mid = (left + right) // 2
+            if agg_ts_map[mid][0] is not None and agg_ts_map[mid][0] <= ts:
+                result = agg_ts_map[mid][1]
+                left = mid + 1
+            else:
+                right = mid - 1
+        return result or {}
+
     def base_indicator_url(self):
         return f"{self.url_base}/v1/indicators"
 
@@ -650,24 +663,12 @@ class IndicatorStream(TickerPartitionedStream):
             agg_ts_map.append((ts, agg))
         agg_ts_map.sort()
 
-        def find_closest_agg(ts):
-            left, right = 0, len(agg_ts_map) - 1
-            result = None
-            while left <= right:
-                mid = (left + right) // 2
-                if agg_ts_map[mid][0] is not None and agg_ts_map[mid][0] <= ts:
-                    result = agg_ts_map[mid][1]
-                    left = mid + 1
-                else:
-                    right = mid - 1
-            return result or {}
-
         for value in record.get("values", []):
             ts = value.get("timestamp")
             if isinstance(ts, (int, float)):
                 ts = self.safe_parse_datetime(ts).isoformat()
 
-            matching_agg = find_closest_agg(ts)
+            matching_agg = self.find_closest_agg(ts, agg_ts_map)
 
             yield {
                 "ticker": record.get("ticker") or context.get("ticker"),
