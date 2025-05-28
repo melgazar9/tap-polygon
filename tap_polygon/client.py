@@ -17,6 +17,8 @@ class PolygonRestStream(RESTStream):
     _api_expects_unix_timestamp = False
     _unix_timestamp_unit = None
     _use_cached_tickers_default = True
+    _requires_end_timestamp_in_query_params = False
+    _requires_end_timestamp_in_path_params = False
 
     def __init__(self, tap):
         super().__init__(tap=tap)
@@ -282,6 +284,38 @@ class PolygonRestStream(RESTStream):
                         )
         return query_params, path_params
 
+    def _prepare_context_and_params(
+        self, context: Context | None
+    ) -> tuple[Context, dict, dict]:
+        """
+        Helper method to prepare the context, query_params, and path_params
+        common to both get_records and get_records_optional.
+        """
+        context = context if context is not None else {}
+        base_query_params = self.query_params.copy()
+        base_path_params = self.path_params.copy()
+
+        query_params, path_params = self._update_query_path_params_with_state(
+            context, base_query_params, base_path_params
+        )
+
+        if (
+            self._requires_end_timestamp_in_path_params
+            and self._cfg_end_timestamp_key not in path_params
+        ):
+            path_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+
+        if (
+            self._requires_end_timestamp_in_query_params
+            and self._cfg_end_timestamp_key not in query_params
+        ):
+            query_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+
+        context["query_params"] = query_params
+        context["path_params"] = path_params
+
+        return context, query_params, path_params
+
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
         query_params = context.get("query_params", {}).copy()
         path_params = context.get("path_params", {}).copy()
@@ -309,6 +343,10 @@ class PolygonRestStream(RESTStream):
         state = self.get_context_state(context)
 
         while True:
+            if self.name != "tickers":
+                logging.info(
+                    f"Fetching records for {self.name} with context: {request_context}"
+                )
             request_url = next_url or self.get_url(request_context)
             query_params_to_log = {
                 k: v for k, v in query_params.items() if k != "apiKey"
@@ -469,22 +507,27 @@ class PolygonRestStream(RESTStream):
                         unit=self._unix_timestamp_unit,
                     )
 
+    def _get_end_timestamp_value(self):
+        """Helper to calculate the end timestamp value based on configuration."""
+        if self._incremental_timestamp_is_date:
+            return datetime.today().date().isoformat()
+        else:
+            if self._api_expects_unix_timestamp:
+                return self.iso_to_unix_timestamp(
+                    datetime.today().isoformat(), unit=self._unix_timestamp_unit
+                )
+            else:
+                return datetime.today().isoformat()
+
     def get_records(self, context: Context | None) -> t.Iterable[dict[str, t.Any]]:
         """
         Only handle one partition per get_records call.
         Let the tap framework handle looping over partitions (i.e., per ticker).
         """
-        context = context if context is not None else {}
+
+        context, query_params, path_params = self._prepare_context_and_params(context)
+
         loop_over_dates = self.other_params.get("loop_over_dates_gte_date", False)
-
-        base_query_params = self.query_params.copy()
-        base_path_params = self.path_params.copy()
-
-        query_params, path_params = self._update_query_path_params_with_state(
-            context, base_query_params, base_path_params
-        )
-        context["query_params"] = query_params
-        context["path_params"] = path_params
 
         if not loop_over_dates:
             yield from self.paginate_records(context)
@@ -501,7 +544,7 @@ class PolygonRestStream(RESTStream):
 
             end_date = datetime.today().date()
 
-            if self._cfg_end_timestamp_key and self.cfg_end_timestamp_value:
+            if self._cfg_end_timestamp_key and self._cfg_end_timestamp_value:
                 try:
                     configured_end_date = datetime.strptime(
                         self._cfg_end_timestamp_value.split("T")[0], "%Y-%m-%d"
@@ -509,7 +552,7 @@ class PolygonRestStream(RESTStream):
                     end_date = min(configured_end_date, end_date)
                 except ValueError:
                     logging.warning(
-                        f"Could not parse _cfg_end_timestamp '{self.cfg_end_timestamp_value}'. Using today's date."
+                        f"Could not parse _cfg_end_timestamp '{self._cfg_end_timestamp_value}'. Using today's date."
                     )
 
             current_timestamp = start_date
@@ -666,6 +709,8 @@ class TickersStream(PolygonRestStream):
         self, context: dict[str, t.Any] | None
     ) -> t.Iterable[dict[str, t.Any]]:
         context = {} if context is None else context
+        if self.name != "tickers":
+            logging.warning("hi")
         ticker_list = self.get_ticker_list()
         query_params = self.query_params.copy()
         if not ticker_list:
@@ -713,15 +758,23 @@ class OptionalTickerPartitionStream(PolygonRestStream):
             or self._ticker_in_query_params is not None
         ), "Both _ticker_in_path_params and _ticker_in_query_params cannot be None."
 
-        context = context if context is not None else {}
-        base_query_params = self.query_params.copy()
-        base_path_params = self.path_params.copy()
+        context, query_params, path_params = self._prepare_context_and_params(context)
 
-        query_params, path_params = self._update_query_path_params_with_state(
-            context, base_query_params, base_path_params
-        )
+        if (
+            self._requires_end_timestamp_in_path_params
+            and self._cfg_end_timestamp_key not in path_params
+        ):
+            path_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+
+        if (
+            self._requires_end_timestamp_in_query_params
+            and self._cfg_end_timestamp_key not in query_params
+        ):
+            query_params[self._cfg_end_timestamp_key] = self._get_end_timestamp_value()
+
         context["query_params"] = query_params
         context["path_params"] = path_params
+
         if self.use_cached_tickers:
             ticker_records = self.tap.get_cached_tickers()
             for ticker_record in ticker_records:

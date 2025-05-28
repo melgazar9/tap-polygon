@@ -143,6 +143,7 @@ class CustomBarsStream(TickerPartitionedStream):
 
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ms"
+    _requires_end_timestamp_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("timestamp", th.DateTimeType),
@@ -161,14 +162,16 @@ class CustomBarsStream(TickerPartitionedStream):
         super().__init__(tap)
         self.tap = tap
 
-    @staticmethod
-    def build_path_params(path_params: dict) -> str:
-        keys = ["multiplier", "timespan", "from", "to"]
+        self._cfg_end_timestamp_key = "to"
+
+    def build_path_params(self, path_params: dict) -> str:
+        keys = ["multiplier", "timespan", "from", self._cfg_end_timestamp_key]
         return "/" + "/".join(str(path_params[k]) for k in keys if k in path_params)
 
     def get_url(self, context: Context):
         ticker = context.get("ticker")
-        return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{self.build_path_params(self.path_params)}"
+        path_params = self.build_path_params(context.get("path_params"))
+        return f"{self.url_base}/v2/aggs/ticker/{ticker}/range{path_params}"
 
     def post_process(self, row: Record, context: Context | None = None) -> dict | None:
         rename_map = {
