@@ -153,7 +153,6 @@ class PolygonRestStream(RESTStream):
 
                 if (
                     not self._cfg_starting_timestamp_key
-                    and k in self.timestamp_field_combos
                     and k not in self._ending_timestamp_keys
                 ):
                     self._cfg_starting_timestamp_key = k
@@ -161,19 +160,28 @@ class PolygonRestStream(RESTStream):
 
                 if (
                     not self._cfg_ending_timestamp_key
-                    and k in self.timestamp_field_combos
+                    and k in self._ending_timestamp_keys
                     and k not in self._starting_timestamp_keys
                 ):
                     self._cfg_ending_timestamp_key = k
                     self._cfg_ending_timestamp_value = v
 
-                if (
-                    self._cfg_starting_timestamp_key
-                    and self._cfg_ending_timestamp_key
-                    and self._cfg_starting_timestamp_value
-                    and self._cfg_ending_timestamp_value
-                ):
+                if self._cfg_starting_timestamp_key and self._cfg_ending_timestamp_key:
                     break
+            if self._cfg_starting_timestamp_key and self._cfg_ending_timestamp_key:
+                break
+
+        if (
+            not self._cfg_ending_timestamp_key
+            and self._cfg_starting_timestamp_key
+            and self.config.get(self.name, {})
+            .get("other_params", {})
+            .get("loop_over_dates_gte_date")
+        ):
+            self._cfg_ending_timestamp_key = self._cfg_starting_timestamp_key
+            self._cfg_ending_timestamp_value = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%d"
+            )
         return None
 
     @property
@@ -633,6 +641,10 @@ class PolygonRestStream(RESTStream):
 
             current_timestamp = start_date
 
+            logging.info(
+                f"****** Looping over dates for stream '{self.name}'"
+                f"where start_date is {start_date} and end_date is {end_date} ******"
+            )
             while current_timestamp <= end_date:
                 context["query_params"] = query_params.copy()
                 context["path_params"] = path_params.copy()
