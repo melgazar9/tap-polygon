@@ -695,8 +695,8 @@ class IndicatorStream(TickerPartitionedStream):
             if isinstance(ts, (int, float)):
                 ts = self.safe_parse_datetime(ts).isoformat()
             agg_ts_map.append((ts, agg))
-        agg_ts_map.sort()
 
+        agg_ts_map.sort(key=lambda x: x[0])
         for value in record.get("values", []):
             ts = value.get("timestamp")
             if isinstance(ts, (int, float)):

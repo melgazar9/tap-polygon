@@ -447,18 +447,30 @@ class PolygonRestStream(RESTStream):
 
             latest_record = None
             for raw_record in records:
-                for record in self.parse_response(raw_record, context):
-                    record = self.post_process(record, context)
-                    if not record:
-                        continue
-                    try:
-                        self._check_missing_fields(self.schema, record)
-                    except TypeError as e:
-                        logging.error(
-                            f"Failed to parse record for {self.name} at {request_url}: {e}"
-                        )
-                    latest_record = record
-                    yield record
+                try:
+                    for record in self.parse_response(raw_record, context):
+                        try:
+                            record = self.post_process(record, context)
+                        except Exception as e:
+                            logging.error(
+                                f"Failed to post-process record for {self.name} at {request_url}: {e}. RECORD: \n{record}\n"
+                            )
+                            continue
+                        if not record:
+                            continue
+                        try:
+                            self._check_missing_fields(self.schema, record)
+                        except TypeError as e:
+                            logging.error(
+                                f"Failed to parse record for {self.name} at {request_url}: {e}. RECORD: \n{record}\n"
+                            )
+                        latest_record = record
+                        yield record
+                except Exception as e:
+                    logging.error(
+                        f"Failed to parse raw record for {self.name} at {request_url}: {e}. RECORD: \n{raw_record}\n"
+                    )
+                    raise
 
             if self.replication_method == "INCREMENTAL" and latest_record is not None:
                 increment_state(
