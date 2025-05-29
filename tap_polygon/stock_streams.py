@@ -132,7 +132,7 @@ class RelatedCompaniesStream(TickerPartitionedStream):
         return row
 
 
-class BaseCustomBarsStream(TickerPartitionedStream):
+class CustomBarsStream(TickerPartitionedStream):
     primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
     replication_method = "INCREMENTAL"
@@ -192,40 +192,40 @@ class BaseCustomBarsStream(TickerPartitionedStream):
         return row
 
 
-class CustomBars1SecondStream(BaseCustomBarsStream):
-    name = "custom_bars_1_second"
+class Bars1SecondStream(CustomBarsStream):
+    name = "bars_1_second"
 
 
-class CustomBars30SecondStream(BaseCustomBarsStream):
-    name = "custom_bars_30_second"
+class Bars30SecondStream(CustomBarsStream):
+    name = "bars_30_second"
 
 
-class CustomBars1MinuteStream(BaseCustomBarsStream):
-    name = "custom_bars_1_minute"
+class Bars1MinuteStream(CustomBarsStream):
+    name = "bars_1_minute"
 
 
-class CustomBars5MinuteStream(BaseCustomBarsStream):
-    name = "custom_bars_5_minute"
+class Bars5MinuteStream(CustomBarsStream):
+    name = "bars_5_minute"
 
 
-class CustomBars30MinuteStream(BaseCustomBarsStream):
-    name = "custom_bars_30_minute"
+class Bars30MinuteStream(CustomBarsStream):
+    name = "bars_30_minute"
 
 
-class CustomBars1HourStream(BaseCustomBarsStream):
-    name = "custom_bars_1_hour"
+class Bars1HourStream(CustomBarsStream):
+    name = "bars_1_hour"
 
 
-class CustomBars1DayStream(BaseCustomBarsStream):
-    name = "custom_bars_1_day"
+class Bars1DayStream(CustomBarsStream):
+    name = "bars_1_day"
 
 
-class CustomBars1WeekStream(BaseCustomBarsStream):
-    name = "custom_bars_1_week"
+class Bars1WeekStream(CustomBarsStream):
+    name = "bars_1_week"
 
 
-class CustomBars1MonthStream(BaseCustomBarsStream):
-    name = "custom_bars_1_month"
+class Bars1MonthStream(CustomBarsStream):
+    name = "bars_1_month"
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
