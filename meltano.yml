@@ -21,7 +21,7 @@ plugins:
     - stream-maps
 
     settings:
-    - name: rest_api_key
+    - name: api_key
       kind: password
       label: Polygon API Key
       description: Polygon.io API Key
@@ -37,7 +37,15 @@ plugins:
       - ticker_details.*
       - ticker_types.*
       - related_companies.*
-      - custom_bars.*
+      - custom_bars_1_second.*
+      - custom_bars_30_second.*
+      - custom_bars_1_minute.*
+      - custom_bars_5_minute.*
+      - custom_bars_30_minute.*
+      - custom_bars_1_hour.*
+      - custom_bars_1_day.*
+      - custom_bars_1_week.*
+      - custom_bars_1_month.*
       - daily_market_summary.*
       - daily_ticker_summary.*
       - previous_day_bar.*
@@ -63,8 +71,9 @@ plugins:
       - treasury_yields.*
 
     config:
-      start_date: '2020-01-01T00:00:00Z'
-      rest_api_key: ${POLYGON_REST_API_KEY}
+      # set this for a global start date for all streams -- will be overridden by the streams incremental state if that's more recent.
+      start_date: '2000-01-01T00:00:00Z'
+      api_key: ${POLYGON_API_KEY}
       base_url: https://api.polygon.io
 
       # The tickers that are set here persist across all streams that require a single stock ticker as input.
@@ -76,135 +85,226 @@ plugins:
         select_tickers:
           - AAPL
           - META
+
       ticker_details:
         query_params:
           date: "2025-05-20"
         other_params:
           loop_over_dates_gte_date: true
-      custom_bars:
-        - path_params:
-            multiplier: 1
-            timespan: "second"
-            from: "2025-01-06"
-            to: "2025-01-09"
-        - query_params:
-            adjusted: true
-            sort: "asc"
-            limit: 5000
+
+      custom_bars_1_second:
+        path_params:
+          multiplier: 1
+          timespan: "second"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_30_second:
+        path_params:
+          multiplier: 30
+          timespan: "second"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_1_minute:
+        path_params:
+          multiplier: 1
+          timespan: "minute"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_5_minute:
+        path_params:
+          multiplier: 5
+          timespan: "minute"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_30_minute:
+        path_params:
+          multiplier: 30
+          timespan: "minute"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_1_hour:
+        path_params:
+          multiplier: 1
+          timespan: "hour"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_1_day:
+        path_params:
+          multiplier: 1
+          timespan: "day"
+          from: "2025-01-06"
+          to: "2025-01-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_1_week:
+        path_params:
+          multiplier: 1
+          timespan: "week"
+          from: "2025-01-06"
+          to: "2025-05-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
+      custom_bars_1_month:
+        path_params:
+          multiplier: 1
+          timespan: "month"
+          from: "2023-01-06"
+          to: "2025-06-09"
+        query_params:
+          adjusted: true
+          sort: "asc"
+          limit: 5000
+
       daily_market_summary:
-        - path_params:
-            date: "2025-05-20"  # leave blank or set to "" to get current day
-        - query_params:
-            adjusted: true
-            include_otc: true
-        - other_params:
-            loop_over_dates_gte_date: true
+        path_params:
+          date: "2025-05-20"  # leave blank or set to "" to get current day
+        query_params:
+          adjusted: true
+          include_otc: true
+        other_params:
+          loop_over_dates_gte_date: true
       daily_ticker_summary:
-        - path_params:
-            date: "2025-05-20"
-        - query_params:
-            adjusted: true
-        - other_params:
-            loop_over_dates_gte_date: true
+        path_params:
+          date: "2025-05-20"
+        query_params:
+          adjusted: true
+        other_params:
+          loop_over_dates_gte_date: true
       top_market_movers:
-        - query_params:
-            direction: "gainers"  # set to "" or "both" to get both directions
-            include_otc: false
+        query_params:
+          direction: "gainers"  # set to "" or "both" to get both directions
+          include_otc: false
       trades:
-        - query_params:
-            sort: timestamp
-            order: asc
-            timestamp.gte: "2025-05-22T20:59:00Z"
-            timestamp.lte: "2025-05-23T23:59:00Z"
+        query_params:
+          sort: timestamp
+          order: asc
+          timestamp__gte: "2025-05-22T20:59:00Z"
+          timestamp__lte: "2025-05-23T23:59:00Z"
       quotes:
-        - query_params:
-            timestamp.gte: "2025-05-20T23:59:00Z"
-            timestamp.lte: "2025-05-21T00:59:00Z"
-            sort: timestamp
-            order: asc
+        query_params:
+          timestamp__gte: "2025-05-20T23:59:00Z"
+          timestamp__lte: "2025-05-21T00:59:00Z"
+          sort: timestamp
+          order: asc
       sma:
-        - query_params:
-            timestamp.gte: "2025-01-01T00:00:00.999Z"
-            timestamp.lte: "2025-01-30T01:00:00.999Z"
-            order: asc
-            timespan: hour
-            window: 10
-            series_type: close
-            expand_underlying: true
+        query_params:
+          timestamp__gte: "2025-01-01T00:00:00.999Z"
+          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          order: asc
+          timespan: hour
+          window: 10
+          series_type: close
+          expand_underlying: true
       ema:
-        - query_params:
-            timestamp.gte: "2025-01-01T00:00:00.999Z"
-            timestamp.lte: "2025-01-30T01:00:00.999Z"
-            order: asc
-            timespan: hour
-            window: 10
-            series_type: close
-            expand_underlying: true
+        query_params:
+          timestamp__gte: "2025-01-01T00:00:00.999Z"
+          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          order: asc
+          timespan: hour
+          window: 10
+          series_type: close
+          expand_underlying: true
       macd:
-        - query_params:
-            timestamp.gte: "2025-01-01T00:00:00.999Z"
-            timestamp.lte: "2025-01-30T01:00:00.999Z"
-            order: asc
-            timespan: hour
-            short_window: 12
-            long_window: 26
-            signal_window: 10
-            series_type: close
-            expand_underlying: true
+        query_params:
+          timestamp__gte: "2025-01-01T00:00:00.999Z"
+          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          order: asc
+          timespan: hour
+          short_window: 12
+          long_window: 26
+          signal_window: 10
+          series_type: close
+          expand_underlying: true
       rsi:
-        - query_params:
-            timestamp.gte: "2025-01-01T00:00:00.999Z"
-            timestamp.lte: "2025-01-30T01:00:00.999Z"
-            order: asc
-            timespan: hour
-            window: 18
-            series_type: close
-            expand_underlying: true
+        query_params:
+          timestamp__gte: "2025-01-01T00:00:00.999Z"
+          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          order: asc
+          timespan: hour
+          window: 18
+          series_type: close
+          expand_underlying: true
       ipos:
-        - query_params:
-            listing_date.gte: "2025-05-01"
-            listing_date.lte: "2025-05-30"
+        query_params:
+          listing_date__gte: "2025-05-01"
+          listing_date__lte: "2025-05-30"
       splits:
-        - query_params:
-            execution_date.gte: "2005-01-01"
-            execution_date.lte: "2005-03-01"
-            order: asc
-        - other_params:
-            use_cached_tickers: true
+        query_params:
+          execution_date__gte: "2005-01-01"
+          execution_date__lte: "2005-03-01"
+          order: asc
+        other_params:
+          use_cached_tickers: true
       dividends:
-        - query_params:
-            ex_dividend_date.gte: "2025-01-01"
-            ex_dividend_date.lte: "2025-01-30"
-            order: asc
-            limit: 1000
+        query_params:
+          ex_dividend_date__gte: "2025-01-01"
+          ex_dividend_date__lte: "2025-01-30"
+          order: asc
+          limit: 1000
       financials:
-        - query_params:
-            filing_date.gte: "2025-01-01"
-            filing_date.lte: "2025-03-01"
-            order: asc
-            include_sources: true
-            limit: 100
+        query_params:
+          filing_date__gte: "2025-01-01"
+          filing_date__lte: "2025-03-01"
+          order: asc
+          include_sources: true
+          limit: 100
       short_interest:
-        - query_params:
-            settlement_date.gte: "2025-03-01"
-            settlement_date.lt: "2025-03-15"
-            limit: 10000
+        query_params:
+          settlement_date__gte: "2025-03-01"
+          settlement_date__lt: "2025-03-15"
+          limit: 10000
       short_volume:
-        - query_params:
-            date.gte: "2025-05-20"
-            date.lte: "2025-05-30"
-            order: asc
-            limit: 10000
+        query_params:
+          date__gte: "2025-05-20"
+          date__lte: "2025-05-30"
+          order: asc
+          limit: 10000
       news:
-        - query_params:
-            published_utc.gte: "2025-05-21"
-            published_utc.lte: "2025-05-23"
-            order: asc
+        query_params:
+          published_utc__gte: "2025-05-21"
+          published_utc__lte: "2025-05-23"
+          order: asc
       treasury_yields:
-        - query_params:
-            date.gte: "2025-05-01"
-            date.lte: "2025-05-30"
-            limit: 5000
+        query_params:
+          date__gte: "2025-05-01"
+          date__lte: "2025-05-30"
+          limit: 5000
 
   loaders:
   - name: target-jsonl

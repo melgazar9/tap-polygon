@@ -22,7 +22,7 @@ class PolygonRestStream(RESTStream):
 
     def __init__(self, tap):
         super().__init__(tap=tap)
-        self.client = RESTClient(self.config["rest_api_key"])
+        self.client = RESTClient(self.config["api_key"])
         self.parse_config_params()
 
         self._cfg_starting_timestamp_key: str | None = None
@@ -117,20 +117,19 @@ class PolygonRestStream(RESTStream):
         else:
             raise ValueError(f"Unknown unit: {unit}")
 
-    def get_config_other_params(
-        self, child_key: str, parent_key: str = "other_params", default=None
+    def _get_config_child_params(
+        self, child_key: str, parent_key: str = "other_params"
     ):
-        """Fetch stream-specific config value."""
+        """Fetch stream-specific config value, e.g. 'other_params'"""
         stream_configs = self.config.get(self.name, [])
-        for params in stream_configs:
-            if parent_key in params:
-                value = params["other_params"].get(child_key, default)
-                return value
-        return default
+        if parent_key in stream_configs:
+            value = stream_configs.get(parent_key).get(child_key)
+            return value
+        return None
 
     @property
     def use_cached_tickers(self) -> bool:
-        config_val = self.get_config_other_params("use_cached_tickers")
+        config_val = self._get_config_child_params("use_cached_tickers")
         if config_val is not None:
             assert isinstance(
                 config_val, bool
@@ -143,6 +142,9 @@ class PolygonRestStream(RESTStream):
     def _set_timestamp_config_keys(self) -> None:
         if self._cfg_starting_timestamp_key and self._cfg_ending_timestamp_key:
             return None
+
+        self.query_params = self._normalize_cfg_param_keys(self.query_params)
+        self.path_params = self._normalize_cfg_param_keys(self.path_params)
 
         for params in (self.query_params.copy(), self.path_params.copy()):
             for k, v in params.items():
@@ -225,7 +227,11 @@ class PolygonRestStream(RESTStream):
 
         state = self.get_context_state(context)
 
-        state_replication_value = state.get("replication_key_value") if state else None
+        state_replication_value = (
+            state.get("replication_key_value", state.get("starting_replication_value"))
+            if state
+            else None
+        )
 
         state_dt = self.safe_parse_datetime(state_replication_value)
         cfg_dt = self.safe_parse_datetime(self._cfg_starting_timestamp_value)
@@ -236,7 +242,11 @@ class PolygonRestStream(RESTStream):
             and "replication_key_value" in state
         ) or (state_dt is None and cfg_dt is None):
             logging.critical(
-                f"Unable to parse datetimes for state_dt and cfg_dt! Check stream {self.name}"
+                f"Unable to parse datetimes for state_dt and cfg_dt! Check stream {self.name}.\n\n"
+                f"State: {state}, \n\n"
+                f"state_replication_value: {state_replication_value}, \n\n"
+                f"self._cfg_starting_timestamp_value: {self._cfg_starting_timestamp_value}\n\n"
+                f"CONFIG: {self.config}"
             )
 
         if (
@@ -261,6 +271,11 @@ class PolygonRestStream(RESTStream):
             for preferred_key in self.record_timestamp_keys:
                 if preferred_key in target_record:
                     return preferred_key
+        return None
+
+    @staticmethod
+    def _normalize_cfg_param_keys(d):
+        return {k.replace("__", "."): v for k, v in d.items()}
 
     def _update_query_path_params_with_state(
         self,
@@ -269,6 +284,7 @@ class PolygonRestStream(RESTStream):
         path_params: dict,
         pop_timestamp: bool = False,
     ) -> tuple[dict, dict]:
+
         if pop_timestamp:
             query_params = {
                 k: v
@@ -353,6 +369,8 @@ class PolygonRestStream(RESTStream):
         return context, query_params, path_params
 
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
+        if self.name != "tickers":
+            logging.info(f"Paginating records for stream: {self.name}")
         query_params = context.get("query_params", {}).copy()
         path_params = context.get("path_params", {}).copy()
         self.normalize_date_params(
@@ -380,6 +398,7 @@ class PolygonRestStream(RESTStream):
 
         while True:
             request_url = next_url or self.get_url(request_context)
+
             query_params_to_log = {
                 k: v for k, v in query_params.items() if k != "apiKey"
             }
@@ -507,7 +526,8 @@ class PolygonRestStream(RESTStream):
             raise ConfigValidationError(
                 f"Config key '{self.name}' must be a dict or list of dicts."
             )
-        self.query_params["apiKey"] = self.config.get("rest_api_key")
+
+        self.query_params["apiKey"] = self.config.get("api_key")
 
     def normalize_date_params(self, params: dict, force_date: bool = False) -> None:
         """
@@ -546,7 +566,7 @@ class PolygonRestStream(RESTStream):
                         else:
                             params[timestamp_col] = dt_obj.isoformat()
                     else:
-                        logging.warning(
+                        logging.info(
                             f"Could not parse timestamp value '{params[timestamp_col]}' for key '{timestamp_col}'."
                             f"Skipping normalization."
                         )
@@ -818,12 +838,11 @@ class OptionalTickerPartitionStream(PolygonRestStream):
                 self._get_end_timestamp_value()
             )
 
-        context["query_params"] = query_params
-        context["path_params"] = path_params
-
         if self.use_cached_tickers:
             ticker_records = self.tap.get_cached_tickers()
             for ticker_record in ticker_records:
+                context["query_params"] = query_params
+                context["path_params"] = path_params
                 if self._ticker_in_query_params:
                     query_params["ticker"] = ticker_record["ticker"]
                 if self._ticker_in_path_params:

@@ -132,9 +132,7 @@ class RelatedCompaniesStream(TickerPartitionedStream):
         return row
 
 
-class CustomBarsStream(TickerPartitionedStream):
-    name = "custom_bars"
-
+class BaseCustomBarsStream(TickerPartitionedStream):
     primary_keys = ["timestamp", "ticker"]
     replication_key = "timestamp"
     replication_method = "INCREMENTAL"
@@ -192,6 +190,42 @@ class CustomBarsStream(TickerPartitionedStream):
         row["otc"] = row.get("otc", None)
         row["timestamp"] = self.safe_parse_datetime(row["timestamp"]).isoformat()
         return row
+
+
+class CustomBars1SecondStream(BaseCustomBarsStream):
+    name = "custom_bars_1_second"
+
+
+class CustomBars30SecondStream(BaseCustomBarsStream):
+    name = "custom_bars_30_second"
+
+
+class CustomBars1MinuteStream(BaseCustomBarsStream):
+    name = "custom_bars_1_minute"
+
+
+class CustomBars5MinuteStream(BaseCustomBarsStream):
+    name = "custom_bars_5_minute"
+
+
+class CustomBars30MinuteStream(BaseCustomBarsStream):
+    name = "custom_bars_30_minute"
+
+
+class CustomBars1HourStream(BaseCustomBarsStream):
+    name = "custom_bars_1_hour"
+
+
+class CustomBars1DayStream(BaseCustomBarsStream):
+    name = "custom_bars_1_day"
+
+
+class CustomBars1WeekStream(BaseCustomBarsStream):
+    name = "custom_bars_1_week"
+
+
+class CustomBars1MonthStream(BaseCustomBarsStream):
+    name = "custom_bars_1_month"
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
@@ -1002,7 +1036,7 @@ class DividendsStream(OptionalTickerPartitionStream):
 
     primary_keys = ["id"]
     replication_key = "ex_dividend_date"
-    replication_method = "FULL_REFRESH"
+    replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
 
     _use_cached_tickers_default = False

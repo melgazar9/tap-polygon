@@ -10,7 +10,15 @@ from singer_sdk import typing as th
 from tap_polygon.client import TickersStream
 from tap_polygon.stock_streams import (
     ConditionCodesStream,
-    CustomBarsStream,
+    CustomBars1DayStream,
+    CustomBars1HourStream,
+    CustomBars1MinuteStream,
+    CustomBars1MonthStream,
+    CustomBars1SecondStream,
+    CustomBars1WeekStream,
+    CustomBars5MinuteStream,
+    CustomBars30MinuteStream,
+    CustomBars30SecondStream,
     DailyMarketSummaryStream,
     DailyTickerSummaryStream,
     DividendsStream,
@@ -53,7 +61,7 @@ class TapPolygon(Tap):
 
     config_jsonschema = th.PropertiesList(
         th.Property(
-            "rest_api_key",
+            "api_key",
             th.StringType,
             required=True,
             secret=True,
@@ -85,7 +93,6 @@ class TapPolygon(Tap):
             TickerDetailsStream(self),
             TickerTypesStream(self),
             RelatedCompaniesStream(self),
-            CustomBarsStream(self),
             DailyMarketSummaryStream(self),
             DailyTickerSummaryStream(self),
             PreviousDayBarSummaryStream(self),
@@ -108,6 +115,15 @@ class TapPolygon(Tap):
             ShortVolumeStream(self),
             NewsStream(self),
             TreasuryYieldStream(self),
+            CustomBars1SecondStream(self),
+            CustomBars30SecondStream(self),
+            CustomBars1MinuteStream(self),
+            CustomBars5MinuteStream(self),
+            CustomBars30MinuteStream(self),
+            CustomBars1HourStream(self),
+            CustomBars1DayStream(self),
+            CustomBars1WeekStream(self),
+            CustomBars1MonthStream(self),
         ]
 
         return streams
