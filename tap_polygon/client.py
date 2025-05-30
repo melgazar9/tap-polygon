@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import typing as t
 from datetime import datetime, timedelta, timezone
 
@@ -376,9 +377,11 @@ class PolygonRestStream(RESTStream):
 
         return context, query_params, path_params
 
+    @staticmethod
+    def redact_api_key(msg):
+        return re.sub(r"(apiKey=)[^&\s]+", r"\1<REDACTED>", msg)
+
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
-        if self.name != "tickers":
-            logging.info(f"Paginating records for stream: {self.name}")
         query_params = context.get("query_params", {}).copy()
         path_params = context.get("path_params", {}).copy()
         self.normalize_date_params(
@@ -418,13 +421,15 @@ class PolygonRestStream(RESTStream):
                 response.raise_for_status()
                 data = response.json()
             except requests.exceptions.RequestException as e:
+                safe_exception = self.redact_api_key(str(e))
                 logging.error(
-                    f"*** Request failed for {self.name} at {request_url}: {e} ***"
+                    f"*** Request failed for {self.name} at {request_url}: {safe_exception} ***"
                 )
                 break
             except ValueError as e:
+                safe_exception = self.redact_api_key(str(e))
                 logging.error(
-                    f"Failed to decode JSON for {self.name} at {request_url}: {e}"
+                    f"Failed to decode JSON for {self.name} at {request_url}: {safe_exception}"
                 )
                 break
 
