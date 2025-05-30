@@ -1401,7 +1401,7 @@ class ShortInterestStream(TickerPartitionedStream):
         self.tap = tap
 
     def get_url(self, context: Context = None):
-        return f"{self.url_base}/stocks/vX/short-interest"
+        return f"{self.url_base}/stocks/v1/short-interest"
 
 
 class ShortVolumeStream(TickerPartitionedStream):
@@ -1440,7 +1440,7 @@ class ShortVolumeStream(TickerPartitionedStream):
         self.tap = tap
 
     def get_url(self, context: Context = None):
-        return f"{self.url_base}/stocks/vX/short-volume"
+        return f"{self.url_base}/stocks/v1/short-volume"
 
 
 class NewsStream(TickerPartitionedStream):
@@ -1525,4 +1525,4 @@ class TreasuryYieldStream(PolygonRestStream):
         self.tap = tap
 
     def get_url(self, context: Context = None):
-        return f"{self.url_base}/fed/vX/treasury-yields"
+        return f"{self.url_base}/fed/v1/treasury-yields"
