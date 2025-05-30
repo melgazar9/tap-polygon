@@ -286,8 +286,8 @@ plugins:
           limit: 100
       short_interest:
         query_params:
-          settlement_date__gte: "2025-03-01"
-          settlement_date__lt: "2025-03-15"
+          settlement_date__gte: "2025-01-01"
+          settlement_date__lt: "2025-01-30"
           limit: 10000
       short_volume:
         query_params:

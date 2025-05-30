@@ -48,7 +48,7 @@ class PolygonRestStream(RESTStream):
             "period_of_report_date",
             "settlement_date",
             "published_utc",
-            "last_updated"
+            "last_updated",
         ]
         self.record_timestamp_keys = [
             "timestamp",
@@ -649,7 +649,8 @@ class PolygonRestStream(RESTStream):
             current_timestamp = start_date
 
             logging.info(
-                f"*** Looping over dates for stream '{self.name}' where start_date is {start_date} and end_date is {end_date} ***"
+                f"*** Looping over dates for stream '{self.name}' where start_date is {start_date}"
+                f"and end_date is {end_date} ***"
             )
             while current_timestamp <= end_date:
                 context["query_params"] = query_params.copy()
