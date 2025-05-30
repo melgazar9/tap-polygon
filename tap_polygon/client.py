@@ -251,10 +251,10 @@ class PolygonRestStream(RESTStream):
             and "replication_key_value" in state
         ) or (state_dt is None and cfg_dt is None):
             logging.critical(
-                f"Unable to parse datetimes for state_dt and cfg_dt! Check stream {self.name}.\n\n"
-                f"State: {state}, \n\n"
-                f"state_replication_value: {state_replication_value}, \n\n"
-                f"self._cfg_starting_timestamp_value: {self._cfg_starting_timestamp_value}\n\n"
+                f"Unable to parse datetimes for state_dt and cfg_dt! Check stream {self.name}."
+                f"State: {state}, "
+                f"state_replication_value: {state_replication_value}, "
+                f"self._cfg_starting_timestamp_value: {self._cfg_starting_timestamp_value}"
                 f"CONFIG: {self.config}"
             )
 
@@ -467,7 +467,7 @@ class PolygonRestStream(RESTStream):
                             record = self.post_process(record, context)
                         except Exception as e:
                             logging.error(
-                                f"Failed to post-process record for {self.name} at {request_url}: {e}. RECORD: \n{record}\n"
+                                f"Failed to post-process record for {self.name} at {request_url}: {e}. RECORD: {record}"
                             )
                             continue
                         if not record:
@@ -476,13 +476,13 @@ class PolygonRestStream(RESTStream):
                             self._check_missing_fields(self.schema, record)
                         except TypeError as e:
                             logging.error(
-                                f"Failed to parse record for {self.name} at {request_url}: {e}. RECORD: \n{record}\n"
+                                f"Failed to parse record for {self.name} at {request_url}: {e}. RECORD: {record}"
                             )
                         latest_record = record
                         yield record
                 except Exception as e:
                     logging.error(
-                        f"Failed to parse raw record for {self.name} at {request_url}: {e}. RECORD: \n{raw_record}\n"
+                        f"Failed to parse raw record for {self.name} at {request_url}: {e}. RECORD: {raw_record}"
                     )
                     raise
 
