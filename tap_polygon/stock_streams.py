@@ -936,7 +936,7 @@ class IPOsStream(OptionalTickerPartitionStream):
 
     name = "ipos"
 
-    primary_keys = ["ticker", "listing_date", "announced_date"]
+    primary_keys = ["ticker", "listing_date"]
     replication_key = "listing_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
