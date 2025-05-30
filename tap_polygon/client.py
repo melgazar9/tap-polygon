@@ -48,6 +48,7 @@ class PolygonRestStream(RESTStream):
             "period_of_report_date",
             "settlement_date",
             "published_utc",
+            "last_updated"
         ]
         self.record_timestamp_keys = [
             "timestamp",
@@ -268,7 +269,8 @@ class PolygonRestStream(RESTStream):
                 return state_dt.isoformat()
             if cfg_dt:
                 return cfg_dt.isoformat()
-        return None
+        else:
+            return self.get_starting_timestamp(context)
 
     def get_record_timestamp_key(self, record: dict | list) -> str | None:
         target_record = None
@@ -647,8 +649,7 @@ class PolygonRestStream(RESTStream):
             current_timestamp = start_date
 
             logging.info(
-                f"****** Looping over dates for stream '{self.name}'"
-                f"where start_date is {start_date} and end_date is {end_date} ******"
+                f"*** Looping over dates for stream '{self.name}' where start_date is {start_date} and end_date is {end_date} ***"
             )
             while current_timestamp <= end_date:
                 context["query_params"] = query_params.copy()
@@ -697,9 +698,9 @@ class PolygonRestStream(RESTStream):
         if self.replication_method != "INCREMENTAL":
             return False
 
-        if replication_key_value is None:
-            logging.info(
-                f"No '{self.replication_key}' found in context for stream {self.name}. Continuing pagination."
+        if replication_key_value is None and self.replication_method == "INCREMENTAL":
+            logging.error(
+                f"*** No '{self.replication_key}' found in context for stream {self.name}. Continuing pagination... ***"
             )
             return False
 

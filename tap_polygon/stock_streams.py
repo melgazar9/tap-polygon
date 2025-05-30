@@ -49,7 +49,7 @@ class TickerDetailsStream(TickerPartitionedStream):
         th.Property("delisted_utc", th.StringType),
         th.Property("description", th.StringType),
         th.Property("homepage_url", th.StringType),
-        th.Property("list_date", th.StringType),
+        th.Property("list_date", th.DateType),
         th.Property("locale", th.StringType),  # enum: "us", "global"
         th.Property(
             "market", th.StringType
@@ -783,7 +783,7 @@ class MarketHolidaysStream(PolygonRestStream):
 
     schema = th.PropertiesList(
         th.Property("close", th.StringType),
-        th.Property("date", th.StringType),
+        th.Property("date", th.DateType),
         th.Property("exchange", th.StringType),
         th.Property("name", th.StringType),
         th.Property("open", th.StringType),
@@ -839,7 +839,7 @@ class MarketStatusStream(PolygonRestStream):
             ),
         ),
         th.Property("market", th.StringType),
-        th.Property("server_time", th.StringType),
+        th.Property("server_time", th.DateTimeType),
     ).to_dict()
 
     def get_records(
@@ -939,6 +939,7 @@ class IPOsStream(OptionalTickerPartitionStream):
     primary_keys = ["ticker", "listing_date", "announced_date"]
     replication_key = "listing_date"
     replication_method = "INCREMENTAL"
+    is_timestamp_replication_key = True
 
     _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
@@ -965,7 +966,7 @@ class IPOsStream(OptionalTickerPartitionStream):
         th.Property("isin", th.StringType),
         th.Property("issuer_name", th.StringType),
         th.Property("last_updated", th.DateType),
-        th.Property("listing_date", th.StringType),
+        th.Property("listing_date", th.DateType),
         th.Property("lot_size", th.NumberType),
         th.Property("lowest_offer_price", th.NumberType),
         th.Property("max_shares_offered", th.NumberType),
@@ -1046,10 +1047,10 @@ class DividendsStream(OptionalTickerPartitionStream):
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
         th.Property("ticker", th.StringType),
-        th.Property("ex_dividend_date", th.DateTimeType),
-        th.Property("declaration_date", th.DateTimeType),
-        th.Property("pay_date", th.DateTimeType),
-        th.Property("record_date", th.DateTimeType),
+        th.Property("ex_dividend_date", th.DateType),
+        th.Property("declaration_date", th.DateType),
+        th.Property("pay_date", th.DateType),
+        th.Property("record_date", th.DateType),
         th.Property("currency", th.StringType),
         th.Property("cash_amount", th.NumberType),
         th.Property("dividend_type", th.StringType, enum=["CD", "SC", "LT", "ST"]),
@@ -1077,7 +1078,7 @@ class TickerEventsStream(TickerPartitionedStream):
         th.Property("name", th.StringType),
         th.Property("cik", th.StringType),
         th.Property("composite_figi", th.StringType),
-        th.Property("date", th.StringType),
+        th.Property("date", th.DateType),
         th.Property("type", th.StringType),
         th.Property("ticker", th.StringType),
     ).to_dict()
@@ -1139,8 +1140,8 @@ class FinancialsStream(PolygonRestStream):
         th.Property("acceptance_datetime", th.DateTimeType),
         th.Property("cik", th.StringType),
         th.Property("company_name", th.StringType),
-        th.Property("end_date", th.StringType),
-        th.Property("filing_date", th.StringType),
+        th.Property("end_date", th.DateType),
+        th.Property("filing_date", th.DateType),
         th.Property(
             "financials",
             th.ObjectType(
@@ -1357,10 +1358,9 @@ class FinancialsStream(PolygonRestStream):
         th.Property("sic", th.StringType),
         th.Property("source_filing_file_url", th.StringType),
         th.Property("source_filing_url", th.StringType),
-        th.Property("start_date", th.StringType),
+        th.Property("start_date", th.DateType),
         th.Property("tickers", th.ArrayType(th.StringType)),
         th.Property("timeframe", th.StringType),
-        th.Property("replication_key", th.DateType),
     ).to_dict()
 
     def __init__(self, tap):
