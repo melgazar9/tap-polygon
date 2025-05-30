@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 import typing as t
@@ -777,19 +776,14 @@ class TickersStream(PolygonRestStream):
         tickers_cfg = self.config.get("tickers", {})
         tickers = tickers_cfg.get("select_tickers") if tickers_cfg else None
 
-        if not tickers:
+        if not tickers or tickers in ("*", ["*"]):
             return None
 
         if isinstance(tickers, str):
-            if tickers == "*":
-                return None
             try:
-                parsed = json.loads(tickers)
-                if parsed == ["*"]:
-                    return None
-                return parsed if isinstance(parsed, list) else [parsed]
-            except json.JSONDecodeError:
-                return [tickers]
+                return tickers.split(",")
+            except AttributeError:
+                raise
 
         if isinstance(tickers, list):
             if tickers == ["*"]:
@@ -808,6 +802,7 @@ class TickersStream(PolygonRestStream):
         query_params = self.query_params.copy()
         if not ticker_list:
             logging.info("Pulling all tickers...")
+            context["query_params"] = query_params
             yield from self.paginate_records(context)
         else:
             logging.info(f"Pulling tickers: {ticker_list}")
