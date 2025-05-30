@@ -291,7 +291,7 @@ class DailyMarketSummaryStream(PolygonRestStream):
 class DailyTickerSummaryStream(TickerPartitionedStream):
     name = "daily_ticker_summary"
 
-    primary_keys = ["symbol", "from"]
+    primary_keys = ["from", "symbol"]
     replication_key = "from"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
@@ -596,7 +596,7 @@ class QuoteStream(TickerPartitionedStream):
 class LastQuoteStream(TickerPartitionedStream):
     name = "last_quote"
 
-    primary_keys = ["ticker", "t", "q"]
+    primary_keys = ["t", "ticker", "q"]
     replication_key = "t"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
@@ -632,7 +632,7 @@ class LastQuoteStream(TickerPartitionedStream):
 
 
 class IndicatorStream(TickerPartitionedStream):
-    primary_keys = ["ticker", "indicator", "series_window_timespan", "timestamp"]
+    primary_keys = ["timestamp", "ticker", "indicator", "series_window_timespan"]
     replication_key = "timestamp"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
@@ -777,7 +777,7 @@ class MarketHolidaysStream(PolygonRestStream):
 
     name = "market_holidays"
 
-    primary_keys = ["exchange", "name", "date"]
+    primary_keys = ["date", "exchange", "name"]
 
     _use_cached_tickers_default = False
 
@@ -936,7 +936,7 @@ class IPOsStream(OptionalTickerPartitionStream):
 
     name = "ipos"
 
-    primary_keys = ["ticker", "listing_date"]
+    primary_keys = ["listing_date", "ticker"]
     replication_key = "listing_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
@@ -1070,7 +1070,7 @@ class TickerEventsStream(TickerPartitionedStream):
 
     name = "ticker_events"
 
-    primary_keys = ["cik", "name", "date", "type"]
+    primary_keys = ["date", "cik", "name", "type"]
 
     _ticker_in_path_params = True
 
@@ -1380,7 +1380,7 @@ class ShortInterestStream(TickerPartitionedStream):
 
     name = "short_interest"
 
-    primary_keys = ["ticker", "settlement_date"]
+    primary_keys = ["settlement_date", "ticker"]
     replication_key = "settlement_date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
@@ -1409,7 +1409,7 @@ class ShortVolumeStream(TickerPartitionedStream):
 
     name = "short_volume"
 
-    primary_keys = ["ticker", "date"]
+    primary_keys = ["date", "ticker"]
     replication_key = "date"
     replication_method = "INCREMENTAL"
     is_timestamp_replication_key = True
