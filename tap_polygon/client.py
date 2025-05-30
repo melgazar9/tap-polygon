@@ -735,12 +735,12 @@ class PolygonRestStream(RESTStream):
         return False
 
 
-class TickersStream(PolygonRestStream):
+class TickerStream(PolygonRestStream):
     """Fetch all tickers from Polygon."""
 
     name = "tickers"
 
-    primary_keys = ["cik", "ticker"]
+    primary_keys = ["ticker"]
     _ticker_in_path_params = True
 
     schema = th.PropertiesList(

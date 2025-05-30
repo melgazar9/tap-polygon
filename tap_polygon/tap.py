@@ -7,7 +7,7 @@ import typing as t
 from singer_sdk import Tap
 from singer_sdk import typing as th
 
-from tap_polygon.client import TickersStream
+from tap_polygon.client import TickerStream
 from tap_polygon.stock_streams import (
     Bars1DayStream,
     Bars1HourStream,
@@ -69,7 +69,7 @@ class TapPolygon(Tap):
     ).to_dict()
 
     _cached_tickers: t.List[dict] | None = None
-    _tickers_stream_instance: TickersStream | None = None
+    _tickers_stream_instance: TickerStream | None = None
 
     def get_cached_tickers(self) -> t.List[dict]:
         if self._cached_tickers is None:
@@ -79,10 +79,10 @@ class TapPolygon(Tap):
             self.logger.info(f"Cached {len(self._cached_tickers)} tickers.")
         return self._cached_tickers
 
-    def get_tickers_stream(self) -> TickersStream:
+    def get_tickers_stream(self) -> TickerStream:
         if self._tickers_stream_instance is None:
-            self.logger.info("Creating TickersStream instance...")
-            self._tickers_stream_instance = TickersStream(self)
+            self.logger.info("Creating TickerStream instance...")
+            self._tickers_stream_instance = TickerStream(self)
         return self._tickers_stream_instance
 
     def discover_streams(self) -> list[PolygonRestStream]:
