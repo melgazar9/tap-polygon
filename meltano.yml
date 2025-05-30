@@ -279,7 +279,7 @@ plugins:
           limit: 1000
       financials:
         query_params:
-          filing_date__gte: "2015-01-01"
+          filing_date__gte: "2025-01-01"
           filing_date__lte: "2025-03-01"
           order: asc
           include_sources: true
@@ -310,16 +310,3 @@ plugins:
   - name: target-jsonl
     variant: andyh1203
     pip_url: target-jsonl
-
-  - name: target-postgres
-    variant: meltanolabs
-    pip_url: git+https://github.com/MeltanoLabs/target-postgres
-    config:
-      host: ${POSTGRES_HOST}
-      port: ${POSTGRES_PORT}
-      user: ${POSTGRES_USER}
-      password: ${POSTGRES_PASSWORD}
-      dialect: ${POSTGRES_DIALECT}
-      database: financial_elt
-      use_copy: true  # Faster bulk loading
-      add_record_metadata: true
