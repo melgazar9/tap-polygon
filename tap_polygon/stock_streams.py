@@ -709,7 +709,7 @@ class IndicatorStream(TickerPartitionedStream):
                 "indicator": self.name,
                 "series_window_timespan": series_window_timespan,
                 "timestamp": ts,
-                "value": value.get("value"),
+                "value": float(value.get("value")),
                 "underlying_ticker": matching_agg.get("T"),
                 "underlying_volume": matching_agg.get("v"),
                 "underlying_vwap": matching_agg.get("vw"),
@@ -1373,7 +1373,11 @@ class FinancialsStream(PolygonRestStream):
 
     @property
     def partitions(self) -> list[dict]:
-        return [{"cik": t["cik"]} for t in self.tap.get_cached_tickers()]
+        if self.use_cached_tickers:
+            return [
+                {"cik": t["cik"]} for t in self.tap.get_cached_tickers() if "cik" in t
+            ]
+        return []
 
 
 class ShortInterestStream(TickerPartitionedStream):
