@@ -682,6 +682,14 @@ class IndicatorStream(TickerPartitionedStream):
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
     def parse_response(self, record: dict, context: dict) -> t.Iterable[dict]:
+        def safe_float(x):
+            try:
+                if x is None or x == "":
+                    return None
+                return float(x)
+            except Exception:
+                return None
+
         # Flatten a single API record (which may have many "values") into flat records
         agg_window = self.query_params.get("window")
         agg_timespan = self.query_params.get("timespan")
@@ -709,14 +717,14 @@ class IndicatorStream(TickerPartitionedStream):
                 "indicator": self.name,
                 "series_window_timespan": series_window_timespan,
                 "timestamp": ts,
-                "value": float(value.get("value")),
-                "underlying_ticker": matching_agg.get("T"),
-                "underlying_volume": matching_agg.get("v"),
-                "underlying_vwap": matching_agg.get("vw"),
-                "underlying_open": matching_agg.get("o"),
-                "underlying_close": matching_agg.get("c"),
-                "underlying_high": matching_agg.get("h"),
-                "underlying_low": matching_agg.get("l"),
+                "value": safe_float(value.get("value")),
+                "underlying_ticker": safe_float(matching_agg.get("T")),
+                "underlying_volume": safe_float(matching_agg.get("v")),
+                "underlying_vwap": safe_float(matching_agg.get("vw")),
+                "underlying_open": safe_float(matching_agg.get("o")),
+                "underlying_close": safe_float(matching_agg.get("c")),
+                "underlying_high": safe_float(matching_agg.get("h")),
+                "underlying_low": safe_float(matching_agg.get("l")),
                 "underlying_transactions": matching_agg.get("n"),
                 "underlying_timestamp": (
                     self.safe_parse_datetime(matching_agg.get("t")).isoformat()
