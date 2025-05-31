@@ -262,15 +262,13 @@ plugins:
           expand_underlying: true
       ipos:
         query_params:
-          listing_date__gte: "2025-05-01"
+          listing_date__gte: "2008-12-10"
           listing_date__lte: "2025-05-30"
       splits:
         query_params:
-          execution_date__gte: "2005-01-01"
-          execution_date__lte: "2005-03-01"
+          execution_date__gte: "2000-08-21"
+          limit: 1000
           order: asc
-        other_params:
-          use_cached_tickers: true
       dividends:
         query_params:
           ex_dividend_date__gte: "2025-01-01"

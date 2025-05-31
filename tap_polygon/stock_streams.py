@@ -804,6 +804,7 @@ class MarketStatusStream(PolygonRestStream):
     name = "market_status"
 
     primary_keys = ["server_time"]
+    _use_cached_tickers_default = False
 
     schema = th.PropertiesList(
         th.Property("after_hours", th.BooleanType),
