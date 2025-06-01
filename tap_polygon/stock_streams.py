@@ -538,7 +538,7 @@ class TradeStream(TickerPartitionedStream):
     _unix_timestamp_unit = "ns"
 
     schema = th.PropertiesList(
-        th.Property("id", th.IntegerType),
+        th.Property("id", th.StringType),
         th.Property("ticker", th.StringType),
         th.Property("sip_timestamp", th.DateTimeType),
         th.Property("participant_timestamp", th.IntegerType),
@@ -565,7 +565,6 @@ class TradeStream(TickerPartitionedStream):
         row[self.replication_key] = self.safe_parse_datetime(
             row[self.replication_key]
         ).isoformat()
-        row["id"] = safe_int(row["id"])
         row["exchange"] = safe_int(row["exchange"])
         return row
 
