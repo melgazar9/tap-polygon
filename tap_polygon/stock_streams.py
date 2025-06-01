@@ -19,6 +19,23 @@ from tap_polygon.client import (
 )
 
 
+def safe_float(x):
+    try:
+        if x is None or x == "":
+            return None
+        return float(x)
+    except Exception:
+        return None
+
+
+def safe_int(x):
+    try:
+        if x is None or x == '':
+            return None
+        return int(float(x))  # handles "10", 10.0, "10.0"
+    except Exception:
+        return None
+
 class TickerDetailsStream(TickerPartitionedStream):
     name = "ticker_details"
 
@@ -488,7 +505,6 @@ class TopMarketMoversStream(PolygonRestStream):
         row["updated"] = self.safe_parse_datetime(row["updated"])
         return row
 
-
 class TradeStream(TickerPartitionedStream):
     """
     Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
@@ -522,7 +538,7 @@ class TradeStream(TickerPartitionedStream):
     _unix_timestamp_unit = "ns"
 
     schema = th.PropertiesList(
-        th.Property("id", th.StringType),
+        th.Property("id", th.IntegerType),
         th.Property("ticker", th.StringType),
         th.Property("sip_timestamp", th.DateTimeType),
         th.Property("participant_timestamp", th.IntegerType),
@@ -534,7 +550,7 @@ class TradeStream(TickerPartitionedStream):
         th.Property("correction", th.AnyType()),
         th.Property("trf_id", th.IntegerType),
         th.Property("trf_timestamp", th.NumberType),
-        th.Property("exchange", th.NumberType),
+        th.Property("exchange", th.IntegerType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -549,6 +565,8 @@ class TradeStream(TickerPartitionedStream):
         row[self.replication_key] = self.safe_parse_datetime(
             row[self.replication_key]
         ).isoformat()
+        row["id"] = safe_int(row["id"])
+        row["exchange"] = safe_int(row["exchange"])
         return row
 
 
@@ -682,14 +700,6 @@ class IndicatorStream(TickerPartitionedStream):
         return f"{self.base_indicator_url()}/{self.name}/{ticker}"
 
     def parse_response(self, record: dict, context: dict) -> t.Iterable[dict]:
-        def safe_float(x):
-            try:
-                if x is None or x == "":
-                    return None
-                return float(x)
-            except Exception:
-                return None
-
         # Flatten a single API record (which may have many "values") into flat records
         agg_window = self.query_params.get("window")
         agg_timespan = self.query_params.get("timespan")
