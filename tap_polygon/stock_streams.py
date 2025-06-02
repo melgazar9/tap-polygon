@@ -24,7 +24,7 @@ def safe_float(x):
         if x is None or x == "":
             return None
         return float(x)
-    except Exception:
+    except ValueError:
         return None
 
 
@@ -32,8 +32,8 @@ def safe_int(x):
     try:
         if x is None or x == '':
             return None
-        return int(float(x))  # handles "10", 10.0, "10.0"
-    except Exception:
+        return int(float(x))
+    except ValueError:
         return None
 
 class TickerDetailsStream(TickerPartitionedStream):
@@ -133,6 +133,8 @@ class RelatedCompaniesStream(TickerPartitionedStream):
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
         th.Property("related_company", th.StringType),
+        th.Property("request_id", th.StringType),
+        th.Property("status", th.StringType),
     ).to_dict()
 
     def __init__(self, tap):
@@ -549,7 +551,7 @@ class TradeStream(TickerPartitionedStream):
         th.Property("conditions", th.ArrayType(th.AnyType())),
         th.Property("correction", th.AnyType()),
         th.Property("trf_id", th.IntegerType),
-        th.Property("trf_timestamp", th.NumberType),
+        th.Property("trf_timestamp", th.IntegerType),
         th.Property("exchange", th.IntegerType),
     ).to_dict()
 
@@ -566,6 +568,10 @@ class TradeStream(TickerPartitionedStream):
             row[self.replication_key]
         ).isoformat()
         row["exchange"] = safe_int(row["exchange"])
+        if "participant_timestamp" in row:
+            row["participant_timestamp"] = safe_int(row["participant_timestamp"])
+        if "trf_timestamp" in row:
+            row["trf_timestamp"] = safe_int(row["trf_timestamp"])
         return row
 
 
@@ -595,7 +601,7 @@ class QuoteStream(TickerPartitionedStream):
         th.Property("sequence_number", th.IntegerType),
         th.Property("sip_timestamp", th.DateTimeType),
         th.Property("tape", th.IntegerType),
-        th.Property("trf_timestamp", th.DateTimeType),
+        th.Property("trf_timestamp", th.IntegerType),
     ).to_dict()
 
     def get_url(self, context: Context):
@@ -607,6 +613,8 @@ class QuoteStream(TickerPartitionedStream):
         row[self.replication_key] = self.safe_parse_datetime(
             row[self.replication_key]
         ).isoformat()
+        if "trf_timestamp" in row:
+            row["trf_timestamp"] = safe_int(row["trf_timestamp"])
         return row
 
 

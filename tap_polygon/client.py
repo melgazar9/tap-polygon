@@ -676,7 +676,7 @@ class PolygonRestStream(RESTStream):
         missing_in_schema = record_keys - schema_fields
         if missing_in_schema:
             logging.critical(
-                f"*** Missing fields in schema that are present record: {missing_in_schema} ***"
+                f"*** URGENT: Missing fields in schema that are present record: {missing_in_schema} ***"
             )
 
     def _has_timestamp_field(self) -> bool:
