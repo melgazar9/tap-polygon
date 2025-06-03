@@ -1,1 +1,1 @@
-""" Placeholder for future streams """
+"""Placeholder for future streams"""

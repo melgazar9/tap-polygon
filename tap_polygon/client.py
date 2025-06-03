@@ -313,32 +313,32 @@ class PolygonRestStream(RESTStream):
                 )
                 if starting_replication_key_value:
                     if self._cfg_starting_timestamp_key in query_params:
-                        query_params[
-                            self._cfg_starting_timestamp_key
-                        ] = starting_replication_key_value
+                        query_params[self._cfg_starting_timestamp_key] = (
+                            starting_replication_key_value
+                        )
 
                         if self._api_expects_unix_timestamp and not isinstance(
                             query_params[self._cfg_starting_timestamp_key], int
                         ):
-                            query_params[
-                                self._cfg_starting_timestamp_key
-                            ] = self.iso_to_unix_timestamp(
-                                query_params[self._cfg_starting_timestamp_key],
-                                unit=self._unix_timestamp_unit,
+                            query_params[self._cfg_starting_timestamp_key] = (
+                                self.iso_to_unix_timestamp(
+                                    query_params[self._cfg_starting_timestamp_key],
+                                    unit=self._unix_timestamp_unit,
+                                )
                             )
                     if self._cfg_starting_timestamp_key in path_params:
-                        path_params[
-                            self._cfg_starting_timestamp_key
-                        ] = starting_replication_key_value
+                        path_params[self._cfg_starting_timestamp_key] = (
+                            starting_replication_key_value
+                        )
 
                         if self._api_expects_unix_timestamp and not isinstance(
                             path_params[self._cfg_starting_timestamp_key], int
                         ):
-                            path_params[
-                                self._cfg_starting_timestamp_key
-                            ] = self.iso_to_unix_timestamp(
-                                path_params[self._cfg_starting_timestamp_key],
-                                unit=self._unix_timestamp_unit,
+                            path_params[self._cfg_starting_timestamp_key] = (
+                                self.iso_to_unix_timestamp(
+                                    path_params[self._cfg_starting_timestamp_key],
+                                    unit=self._unix_timestamp_unit,
+                                )
                             )
         return query_params, path_params
 
@@ -361,17 +361,17 @@ class PolygonRestStream(RESTStream):
             self._requires_end_timestamp_in_path_params
             and self._cfg_ending_timestamp_key not in path_params
         ):
-            path_params[
-                self._cfg_ending_timestamp_key
-            ] = self._get_end_timestamp_value()
+            path_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         if (
             self._requires_end_timestamp_in_query_params
             and self._cfg_ending_timestamp_key not in query_params
         ):
-            query_params[
-                self._cfg_ending_timestamp_key
-            ] = self._get_end_timestamp_value()
+            query_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         context["query_params"] = query_params
         context["path_params"] = path_params
@@ -575,7 +575,11 @@ class PolygonRestStream(RESTStream):
 
                     if dt_obj:
                         if self._api_expects_unix_timestamp:
-                            assert self._unix_timestamp_unit in ("s", "ms", "ns",), (
+                            assert self._unix_timestamp_unit in (
+                                "s",
+                                "ms",
+                                "ns",
+                            ), (
                                 f"_unix_timestamp_unit in stream {self.name} must be 's', 'ms', or 'ns'."
                                 f"Currently it's set to value {self._unix_timestamp_unit}"
                             )
@@ -848,17 +852,17 @@ class OptionalTickerPartitionStream(PolygonRestStream):
             self._requires_end_timestamp_in_path_params
             and self._cfg_ending_timestamp_key not in path_params
         ):
-            path_params[
-                self._cfg_ending_timestamp_key
-            ] = self._get_end_timestamp_value()
+            path_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         if (
             self._requires_end_timestamp_in_query_params
             and self._cfg_ending_timestamp_key not in query_params
         ):
-            query_params[
-                self._cfg_ending_timestamp_key
-            ] = self._get_end_timestamp_value()
+            query_params[self._cfg_ending_timestamp_key] = (
+                self._get_end_timestamp_value()
+            )
 
         if self.use_cached_tickers:
             ticker_records = self.tap.get_cached_tickers()

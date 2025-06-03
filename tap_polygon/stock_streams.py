@@ -683,7 +683,7 @@ class IndicatorStream(TickerPartitionedStream):
         th.Property("underlying_high", th.NumberType),
         th.Property("underlying_low", th.NumberType),
         th.Property("underlying_close", th.NumberType),
-        th.Property("underlying_volume", th.IntegerType),
+        th.Property("underlying_volume", th.NumberType),
         th.Property("underlying_vwap", th.NumberType),
         th.Property("underlying_transactions", th.IntegerType),
     ).to_dict()
@@ -757,20 +757,20 @@ class IndicatorStream(TickerPartitionedStream):
             }
 
 
-class StockSmaStream(IndicatorStream):
-    name = "stock_sma"
+class SmaStream(IndicatorStream):
+    name = "sma"
 
 
-class StockEmaStream(IndicatorStream):
-    name = "stock_ema"
+class EmaStream(IndicatorStream):
+    name = "ema"
 
 
-class StockMACDStream(IndicatorStream):
-    name = "stock_macd"
+class MACDStream(IndicatorStream):
+    name = "macd"
 
 
-class StockRSIStream(IndicatorStream):
-    name = "stock_rsi"
+class RSIStream(IndicatorStream):
+    name = "rsi"
 
 
 class ExchangesStream(PolygonRestStream):
