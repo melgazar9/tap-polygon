@@ -8,41 +8,42 @@ from singer_sdk import Tap
 from singer_sdk import typing as th
 
 from tap_polygon.client import TickerStream
+
 from tap_polygon.stock_streams import (
-    Bars1DayStream,
-    Bars1HourStream,
-    Bars1MinuteStream,
-    Bars1MonthStream,
-    Bars1SecondStream,
-    Bars1WeekStream,
-    Bars5MinuteStream,
-    Bars30MinuteStream,
-    Bars30SecondStream,
+    StockBars1DayStream,
+    StockBars1HourStream,
+    StockBars1MinuteStream,
+    StockBars1MonthStream,
+    StockBars1SecondStream,
+    StockBars1WeekStream,
+    StockBars5MinuteStream,
+    StockBars30MinuteStream,
+    StockBars30SecondStream,
     ConditionCodesStream,
     DailyMarketSummaryStream,
     DailyTickerSummaryStream,
     DividendsStream,
-    EmaStream,
+    StockEmaStream,
     ExchangesStream,
     FinancialsStream,
     IPOsStream,
-    MACDStream,
+    StockMACDStream,
     MarketHolidaysStream,
     MarketStatusStream,
     NewsStream,
     PolygonRestStream,
     PreviousDayBarSummaryStream,
     RelatedCompaniesStream,
-    RSIStream,
+    StockRSIStream,
     ShortInterestStream,
     ShortVolumeStream,
-    SmaStream,
+    StockSmaStream,
     SplitsStream,
     TickerDetailsStream,
     TickerEventsStream,
     TickerTypesStream,
     TopMarketMoversStream,
-    TradeStream,
+    StockTradeStream,
     TreasuryYieldStream,
 )
 
@@ -52,8 +53,8 @@ from tap_polygon.stock_streams import (
 # - UnifiedSnapshotStream
 
 # Streams not imported because advanced subscription is required
-# - QuoteStream
-# - LastQuoteStream
+# - StockQuoteStream
+# - StockLastQuoteStream
 
 
 class TapPolygon(Tap):
@@ -97,11 +98,11 @@ class TapPolygon(Tap):
             DailyTickerSummaryStream(self),
             PreviousDayBarSummaryStream(self),
             TopMarketMoversStream(self),
-            TradeStream(self),
-            SmaStream(self),
-            EmaStream(self),
-            MACDStream(self),
-            RSIStream(self),
+            StockTradeStream(self),
+            StockSmaStream(self),
+            StockEmaStream(self),
+            StockMACDStream(self),
+            StockRSIStream(self),
             ExchangesStream(self),
             MarketHolidaysStream(self),
             MarketStatusStream(self),
@@ -115,15 +116,15 @@ class TapPolygon(Tap):
             ShortVolumeStream(self),
             NewsStream(self),
             TreasuryYieldStream(self),
-            Bars1SecondStream(self),
-            Bars30SecondStream(self),
-            Bars1MinuteStream(self),
-            Bars5MinuteStream(self),
-            Bars30MinuteStream(self),
-            Bars1HourStream(self),
-            Bars1DayStream(self),
-            Bars1WeekStream(self),
-            Bars1MonthStream(self),
+            StockBars1SecondStream(self),
+            StockBars30SecondStream(self),
+            StockBars1MinuteStream(self),
+            StockBars5MinuteStream(self),
+            StockBars30MinuteStream(self),
+            StockBars1HourStream(self),
+            StockBars1DayStream(self),
+            StockBars1WeekStream(self),
+            StockBars1MonthStream(self),
         ]
 
         return streams

@@ -37,25 +37,25 @@ plugins:
       - ticker_details.*
       - ticker_types.*
       - related_companies.*
-      - bars_1_second.*
-      - bars_30_second.*
-      - bars_1_minute.*
-      - bars_5_minute.*
-      - bars_30_minute.*
-      - bars_1_hour.*
-      - bars_1_day.*
-      - bars_1_week.*
-      - bars_1_month.*
+      - stock_bars_1_second.*
+      - stock_bars_30_second.*
+      - stock_bars_1_minute.*
+      - stock_bars_5_minute.*
+      - stock_bars_30_minute.*
+      - stock_bars_1_hour.*
+      - stock_bars_1_day.*
+      - stock_bars_1_week.*
+      - stock_bars_1_month.*
       - daily_market_summary.*
       - daily_ticker_summary.*
       - previous_day_bar.*
       - top_market_movers.*
-      - trades.*
-      - quotes.*
-      - sma.*
-      - ema.*
-      - macd.*
-      - rsi.*
+      - stock_trades.*
+      - stock_quotes.*
+      - stock_sma.*
+      - stock_ema.*
+      - stock_macd.*
+      - stock_rsi.*
       - exchanges.*
       - market_holidays.*
       - market_status.*
@@ -83,8 +83,9 @@ plugins:
         query_params:
           sort: ticker
         select_tickers:
-          - AAPL
-          - META
+          - "AAPL"
+          - "GOOGL"
+          - "META"
 
       ticker_details:
         query_params:
@@ -92,7 +93,7 @@ plugins:
         other_params:
           loop_over_dates_gte_date: true
 
-      bars_1_second:
+      stock_bars_1_second:
         path_params:
           multiplier: 1
           timespan: "second"
@@ -103,7 +104,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_30_second:
+      stock_bars_30_second:
         path_params:
           multiplier: 30
           timespan: "second"
@@ -114,7 +115,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_1_minute:
+      stock_bars_1_minute:
         path_params:
           multiplier: 1
           timespan: "minute"
@@ -125,7 +126,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_5_minute:
+      stock_bars_5_minute:
         path_params:
           multiplier: 5
           timespan: "minute"
@@ -136,7 +137,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_30_minute:
+      stock_bars_30_minute:
         path_params:
           multiplier: 30
           timespan: "minute"
@@ -147,7 +148,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_1_hour:
+      stock_bars_1_hour:
         path_params:
           multiplier: 1
           timespan: "hour"
@@ -158,7 +159,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_1_day:
+      stock_bars_1_day:
         path_params:
           multiplier: 1
           timespan: "day"
@@ -169,7 +170,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_1_week:
+      stock_bars_1_week:
         path_params:
           multiplier: 1
           timespan: "week"
@@ -180,7 +181,7 @@ plugins:
           sort: "asc"
           limit: 5000
 
-      bars_1_month:
+      stock_bars_1_month:
         path_params:
           multiplier: 1
           timespan: "month"
@@ -210,19 +211,19 @@ plugins:
         query_params:
           direction: "gainers"  # set to "" or "both" to get both directions
           include_otc: false
-      trades:
+      stock_trades:
         query_params:
           sort: timestamp
-          order: asc
-          timestamp__gte: "2025-05-22T20:59:00Z"
-          timestamp__lte: "2025-05-23T23:59:00Z"
-      quotes:
+          order: "asc"
+          timestamp__gte: "2015-06-01"
+          limit: 50000
+      stock_quotes:
         query_params:
           timestamp__gte: "2025-05-20T23:59:00Z"
           timestamp__lte: "2025-05-21T00:59:00Z"
           sort: timestamp
           order: asc
-      sma:
+      stock_sma:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
           timestamp__lte: "2025-01-30T01:00:00.999Z"
@@ -231,7 +232,7 @@ plugins:
           window: 10
           series_type: close
           expand_underlying: true
-      ema:
+      stock_ema:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
           timestamp__lte: "2025-01-30T01:00:00.999Z"
@@ -240,7 +241,7 @@ plugins:
           window: 10
           series_type: close
           expand_underlying: true
-      macd:
+      stock_macd:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
           timestamp__lte: "2025-01-30T01:00:00.999Z"
@@ -251,15 +252,15 @@ plugins:
           signal_window: 9
           series_type: close
           expand_underlying: true
-      rsi:
+      stock_rsi:
         query_params:
-          timestamp__gte: "2025-01-01T00:00:00.999Z"
-          timestamp__lte: "2025-01-30T01:00:00.999Z"
-          order: asc
-          timespan: hour
+          timestamp__gte: "2015-06-01"
+          order: "asc"
+          timespan: "minute"
           window: 18
           series_type: close
           expand_underlying: true
+          limit: 5000
       ipos:
         query_params:
           listing_date__gte: "2008-12-10"
@@ -277,7 +278,7 @@ plugins:
           limit: 1000
       financials:
         query_params:
-          filing_date__gte: "2025-01-01"
+          filing_date__gte: "1970-01-01"
           filing_date__lte: "2025-03-01"
           order: asc
           include_sources: true

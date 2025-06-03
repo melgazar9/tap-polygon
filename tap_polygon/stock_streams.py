@@ -30,11 +30,12 @@ def safe_float(x):
 
 def safe_int(x):
     try:
-        if x is None or x == '':
+        if x is None or x == "":
             return None
         return int(float(x))
     except ValueError:
         return None
+
 
 class TickerDetailsStream(TickerPartitionedStream):
     name = "ticker_details"
@@ -213,40 +214,40 @@ class CustomBarsStream(TickerPartitionedStream):
         return row
 
 
-class Bars1SecondStream(CustomBarsStream):
-    name = "bars_1_second"
+class StockBars1SecondStream(CustomBarsStream):
+    name = "stock_bars_1_second"
 
 
-class Bars30SecondStream(CustomBarsStream):
-    name = "bars_30_second"
+class StockBars30SecondStream(CustomBarsStream):
+    name = "stock_bars_30_second"
 
 
-class Bars1MinuteStream(CustomBarsStream):
-    name = "bars_1_minute"
+class StockBars1MinuteStream(CustomBarsStream):
+    name = "stock_bars_1_minute"
 
 
-class Bars5MinuteStream(CustomBarsStream):
-    name = "bars_5_minute"
+class StockBars5MinuteStream(CustomBarsStream):
+    name = "stock_bars_5_minute"
 
 
-class Bars30MinuteStream(CustomBarsStream):
-    name = "bars_30_minute"
+class StockBars30MinuteStream(CustomBarsStream):
+    name = "stock_bars_30_minute"
 
 
-class Bars1HourStream(CustomBarsStream):
-    name = "bars_1_hour"
+class StockBars1HourStream(CustomBarsStream):
+    name = "stock_bars_1_hour"
 
 
-class Bars1DayStream(CustomBarsStream):
-    name = "bars_1_day"
+class StockBars1DayStream(CustomBarsStream):
+    name = "stock_bars_1_day"
 
 
-class Bars1WeekStream(CustomBarsStream):
-    name = "bars_1_week"
+class StockBars1WeekStream(CustomBarsStream):
+    name = "stock_bars_1_week"
 
 
-class Bars1MonthStream(CustomBarsStream):
-    name = "bars_1_month"
+class StockBars1MonthStream(CustomBarsStream):
+    name = "stock_bars_1_month"
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
@@ -511,7 +512,8 @@ class TopMarketMoversStream(PolygonRestStream):
         row["updated"] = self.safe_parse_datetime(row["updated"])
         return row
 
-class TradeStream(TickerPartitionedStream):
+
+class StockTradeStream(TickerPartitionedStream):
     """
     Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
     Each record includes price, size, exchange, trade conditions, and precise timestamp information.
@@ -527,7 +529,7 @@ class TradeStream(TickerPartitionedStream):
     Data is delayed 15 minutes for developer plan. For real-time data top the Advanced Subscription is needed.
     """
 
-    name = "trades"
+    name = "stock_trades"
 
     primary_keys = [
         "ticker",
@@ -579,8 +581,8 @@ class TradeStream(TickerPartitionedStream):
         return row
 
 
-class QuoteStream(TickerPartitionedStream):
-    name = "quotes"
+class StockQuoteStream(TickerPartitionedStream):
+    name = "stock_quotes"
 
     primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
     replication_key = "sip_timestamp"
@@ -622,8 +624,8 @@ class QuoteStream(TickerPartitionedStream):
         return row
 
 
-class LastQuoteStream(TickerPartitionedStream):
-    name = "last_quote"
+class StockLastQuoteStream(TickerPartitionedStream):
+    name = "stock_last_quote"
 
     primary_keys = ["t", "ticker", "q"]
     replication_key = "t"
@@ -755,20 +757,20 @@ class IndicatorStream(TickerPartitionedStream):
             }
 
 
-class SmaStream(IndicatorStream):
-    name = "sma"
+class StockSmaStream(IndicatorStream):
+    name = "stock_sma"
 
 
-class EmaStream(IndicatorStream):
-    name = "ema"
+class StockEmaStream(IndicatorStream):
+    name = "stock_ema"
 
 
-class MACDStream(IndicatorStream):
-    name = "macd"
+class StockMACDStream(IndicatorStream):
+    name = "stock_macd"
 
 
-class RSIStream(IndicatorStream):
-    name = "rsi"
+class StockRSIStream(IndicatorStream):
+    name = "stock_rsi"
 
 
 class ExchangesStream(PolygonRestStream):
