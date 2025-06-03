@@ -513,7 +513,7 @@ class TopMarketMoversStream(PolygonRestStream):
         return row
 
 
-class StockTradeStream(TickerPartitionedStream):
+class TradeStream(TickerPartitionedStream):
     """
     Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
     Each record includes price, size, exchange, trade conditions, and precise timestamp information.
@@ -529,7 +529,7 @@ class StockTradeStream(TickerPartitionedStream):
     Data is delayed 15 minutes for developer plan. For real-time data top the Advanced Subscription is needed.
     """
 
-    name = "stock_trades"
+    name = "trades"
 
     primary_keys = [
         "ticker",
