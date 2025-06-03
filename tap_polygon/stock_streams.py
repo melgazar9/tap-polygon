@@ -171,7 +171,7 @@ class CustomBarsStream(TickerPartitionedStream):
         th.Property("close", th.NumberType),
         th.Property("volume", th.NumberType),
         th.Property("vwap", th.NumberType),
-        th.Property("transactions", th.NumberType),
+        th.Property("transactions", th.IntegerType),
         th.Property("otc", th.BooleanType),
     ).to_dict()
 
@@ -204,6 +204,8 @@ class CustomBarsStream(TickerPartitionedStream):
         for old_key, new_key in rename_map.items():
             if old_key in row:
                 row[new_key] = row.pop(old_key)
+                if new_key in ("open", "high", "low", "close", "vwap"):
+                    row[new_key] = safe_float(row[new_key])
 
         row["ticker"] = context.get("ticker")
         row["otc"] = row.get("otc", None)
@@ -267,7 +269,7 @@ class DailyMarketSummaryStream(PolygonRestStream):
         th.Property("close", th.NumberType),
         th.Property("volume", th.NumberType),
         th.Property("vwap", th.NumberType),
-        th.Property("transactions", th.NumberType),
+        th.Property("transactions", th.IntegerType),
         th.Property("otc", th.BooleanType),
     ).to_dict()
 
@@ -396,6 +398,8 @@ class PreviousDayBarSummaryStream(TickerPartitionedStream):
         for old_key, new_key in mapping.items():
             if old_key in row:
                 row[new_key] = row.pop(old_key)
+                if new_key in ("open", "high", "low", "close", "vwap"):
+                    row[new_key] = safe_float(row[new_key])
         row["timestamp"] = self.safe_parse_datetime(row["timestamp"])
         return row
 
@@ -677,7 +681,7 @@ class IndicatorStream(TickerPartitionedStream):
         th.Property("underlying_high", th.NumberType),
         th.Property("underlying_low", th.NumberType),
         th.Property("underlying_close", th.NumberType),
-        th.Property("underlying_volume", th.NumberType),
+        th.Property("underlying_volume", th.IntegerType),
         th.Property("underlying_vwap", th.NumberType),
         th.Property("underlying_transactions", th.IntegerType),
     ).to_dict()
@@ -735,14 +739,14 @@ class IndicatorStream(TickerPartitionedStream):
                 "series_window_timespan": series_window_timespan,
                 "timestamp": ts,
                 "value": safe_float(value.get("value")),
-                "underlying_ticker": safe_float(matching_agg.get("T")),
+                "underlying_ticker": matching_agg.get("T"),
                 "underlying_volume": safe_float(matching_agg.get("v")),
                 "underlying_vwap": safe_float(matching_agg.get("vw")),
                 "underlying_open": safe_float(matching_agg.get("o")),
                 "underlying_close": safe_float(matching_agg.get("c")),
                 "underlying_high": safe_float(matching_agg.get("h")),
                 "underlying_low": safe_float(matching_agg.get("l")),
-                "underlying_transactions": matching_agg.get("n"),
+                "underlying_transactions": safe_int(matching_agg.get("n")),
                 "underlying_timestamp": (
                     self.safe_parse_datetime(matching_agg.get("t")).isoformat()
                     if matching_agg.get("t")
