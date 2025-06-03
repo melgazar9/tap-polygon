@@ -581,8 +581,8 @@ class StockTradeStream(TickerPartitionedStream):
         return row
 
 
-class StockQuoteStream(TickerPartitionedStream):
-    name = "stock_quotes"
+class QuoteStream(TickerPartitionedStream):
+    name = "quotes"
 
     primary_keys = ["ticker", "sip_timestamp", "sequence_number"]
     replication_key = "sip_timestamp"
@@ -624,8 +624,8 @@ class StockQuoteStream(TickerPartitionedStream):
         return row
 
 
-class StockLastQuoteStream(TickerPartitionedStream):
-    name = "stock_last_quote"
+class LastQuoteStream(TickerPartitionedStream):
+    name = "last_quote"
 
     primary_keys = ["t", "ticker", "q"]
     replication_key = "t"

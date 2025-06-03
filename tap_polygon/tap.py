@@ -52,8 +52,8 @@ from tap_polygon.stock_streams import (
 # - UnifiedSnapshotStream
 
 # Streams not imported because advanced subscription is required
-# - StockQuoteStream
-# - StockLastQuoteStream
+# - QuoteStream
+# - LastQuoteStream
 
 
 class TapPolygon(Tap):
