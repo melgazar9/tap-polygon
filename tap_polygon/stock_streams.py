@@ -214,40 +214,40 @@ class CustomBarsStream(TickerPartitionedStream):
         return row
 
 
-class StockBars1SecondStream(CustomBarsStream):
-    name = "stock_bars_1_second"
+class Bars1SecondStream(CustomBarsStream):
+    name = "bars_1_second"
 
 
-class StockBars30SecondStream(CustomBarsStream):
-    name = "stock_bars_30_second"
+class Bars30SecondStream(CustomBarsStream):
+    name = "bars_30_second"
 
 
-class StockBars1MinuteStream(CustomBarsStream):
-    name = "stock_bars_1_minute"
+class Bars1MinuteStream(CustomBarsStream):
+    name = "bars_1_minute"
 
 
-class StockBars5MinuteStream(CustomBarsStream):
-    name = "stock_bars_5_minute"
+class Bars5MinuteStream(CustomBarsStream):
+    name = "bars_5_minute"
 
 
-class StockBars30MinuteStream(CustomBarsStream):
-    name = "stock_bars_30_minute"
+class Bars30MinuteStream(CustomBarsStream):
+    name = "bars_30_minute"
 
 
-class StockBars1HourStream(CustomBarsStream):
-    name = "stock_bars_1_hour"
+class Bars1HourStream(CustomBarsStream):
+    name = "bars_1_hour"
 
 
-class StockBars1DayStream(CustomBarsStream):
-    name = "stock_bars_1_day"
+class Bars1DayStream(CustomBarsStream):
+    name = "bars_1_day"
 
 
-class StockBars1WeekStream(CustomBarsStream):
-    name = "stock_bars_1_week"
+class Bars1WeekStream(CustomBarsStream):
+    name = "bars_1_week"
 
 
-class StockBars1MonthStream(CustomBarsStream):
-    name = "stock_bars_1_month"
+class Bars1MonthStream(CustomBarsStream):
+    name = "bars_1_month"
 
 
 class DailyMarketSummaryStream(PolygonRestStream):
