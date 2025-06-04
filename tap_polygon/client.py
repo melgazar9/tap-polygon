@@ -3,6 +3,7 @@ import re
 import typing as t
 from datetime import datetime, timedelta, timezone
 
+import backoff
 import requests
 from polygon import RESTClient
 from singer_sdk import typing as th
@@ -382,6 +383,23 @@ class PolygonRestStream(RESTStream):
     def redact_api_key(msg):
         return re.sub(r"(apiKey=)[^&\s]+", r"\1<REDACTED>", msg)
 
+    @backoff.on_exception(
+        backoff.expo,
+        (requests.exceptions.RequestException,),
+        max_tries=5,
+        max_time=60,
+        jitter=backoff.full_jitter,
+    )
+    def get_response(self, url, query_params):
+        try:
+            response = requests.get(url, params=query_params, timeout=120)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as e:
+            safe_exception = self.redact_api_key(str(e))
+            logging.error(f"Request failed: {safe_exception}")
+            raise
+
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
         query_params = context.get("query_params", {}).copy()
         path_params = context.get("path_params", {}).copy()
@@ -418,8 +436,7 @@ class PolygonRestStream(RESTStream):
                 f"Streaming {self.name} from URL: {request_url} with query_params: {query_params_to_log}..."
             )
             try:
-                response = requests.get(request_url, params=query_params)
-                response.raise_for_status()
+                response = self.get_response(url=request_url, query_params=query_params)
                 data = response.json()
             except requests.exceptions.RequestException as e:
                 safe_exception = self.redact_api_key(str(e))
