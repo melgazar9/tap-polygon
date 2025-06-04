@@ -396,7 +396,9 @@ class PolygonRestStream(RESTStream):
             response.raise_for_status()
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code in (404, 204):
-                logging.warning(f"No data for {url} (status {e.response.status_code}): {e}")
+                logging.warning(
+                    f"No data for {url} (status {e.response.status_code}): {e}"
+                )
                 return None
             raise
         return response

@@ -72,7 +72,13 @@ plugins:
 
     config:
       # set this for a global start date for all streams -- will be overridden by the streams incremental state if that's more recent.
+
+      # 'start_date' here is a global configuration! This overrides the streams config start date param (e.g. timestamp.gte) for all streams.
+      # To set start_date earlier than this start date for a specific stream, either comment this start_date block out
+      # or set it earlier than the streams start timestamp. The reason for this is because of incremental builds -- it
+      # takes the max between this global config and the streams timestamp config param to get the starting timestamp.
       start_date: '2000-01-01T00:00:00Z'
+
       api_key: ${POLYGON_API_KEY}
       base_url: https://api.polygon.io
 
