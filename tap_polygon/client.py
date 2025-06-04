@@ -386,19 +386,20 @@ class PolygonRestStream(RESTStream):
     @backoff.on_exception(
         backoff.expo,
         (requests.exceptions.RequestException,),
-        max_tries=5,
-        max_time=60,
+        max_tries=10,
+        max_time=300,
         jitter=backoff.full_jitter,
     )
     def get_response(self, url, query_params):
+        response = requests.get(url, params=query_params, timeout=180)
         try:
-            response = requests.get(url, params=query_params, timeout=120)
             response.raise_for_status()
-            return response
-        except requests.exceptions.RequestException as e:
-            safe_exception = self.redact_api_key(str(e))
-            logging.error(f"Request failed: {safe_exception}")
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code in (404, 204):
+                logging.warning(f"No data for {url} (status {e.response.status_code}): {e}")
+                return None
             raise
+        return response
 
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
         query_params = context.get("query_params", {}).copy()
@@ -437,6 +438,8 @@ class PolygonRestStream(RESTStream):
             )
             try:
                 response = self.get_response(url=request_url, query_params=query_params)
+                if response is None:
+                    break
                 data = response.json()
             except requests.exceptions.RequestException as e:
                 safe_exception = self.redact_api_key(str(e))

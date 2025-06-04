@@ -38,11 +38,11 @@ from tap_polygon.stock_streams import (
     ShortVolumeStream,
     SmaStream,
     SplitsStream,
-    TradeStream,
     TickerDetailsStream,
     TickerEventsStream,
     TickerTypesStream,
     TopMarketMoversStream,
+    TradeStream,
     TreasuryYieldStream,
 )
 
