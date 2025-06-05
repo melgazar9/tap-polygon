@@ -2,7 +2,7 @@ import logging
 import re
 import typing as t
 from datetime import datetime, timedelta, timezone
-
+import socket
 import backoff
 import requests
 from polygon import RESTClient
@@ -386,14 +386,21 @@ class PolygonRestStream(RESTStream):
     @backoff.on_exception(
         backoff.expo,
         (requests.exceptions.RequestException,),
-        max_tries=10,
-        max_time=300,
+        max_tries=20,
+        max_time=1800,
         jitter=backoff.full_jitter,
     )
     def get_response(self, url, query_params):
-        response = requests.get(url, params=query_params, timeout=180)
         try:
+            response = requests.get(url, params=query_params, timeout=180)
             response.raise_for_status()
+            return response
+        except requests.exceptions.ConnectionError as ce:
+            if isinstance(ce.__cause__, socket.gaierror):
+                logging.error(f"DNS resolution failed for {url}: {ce}")
+            else:
+                logging.error(f"Connection error for {url}: {ce}")
+            raise
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code in (404, 204):
                 logging.warning(
@@ -401,7 +408,6 @@ class PolygonRestStream(RESTStream):
                 )
                 return None
             raise
-        return response
 
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
         query_params = context.get("query_params", {}).copy()
