@@ -578,6 +578,8 @@ class TradeStream(TickerPartitionedStream):
             row["participant_timestamp"] = safe_int(row["participant_timestamp"])
         if "trf_timestamp" in row:
             row["trf_timestamp"] = safe_int(row["trf_timestamp"])
+
+        row["price"] = safe_float(row["price"])
         return row
 
 
