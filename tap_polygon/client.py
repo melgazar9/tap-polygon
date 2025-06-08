@@ -387,7 +387,7 @@ class PolygonRestStream(RESTStream):
         backoff.expo,
         (requests.exceptions.RequestException,),
         max_tries=20,
-        max_time=1800,
+        max_time=5000,
         jitter=backoff.full_jitter,
     )
     def get_response(self, url, query_params):
