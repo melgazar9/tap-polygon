@@ -1,8 +1,9 @@
 import logging
 import re
+import socket
 import typing as t
 from datetime import datetime, timedelta, timezone
-import socket
+
 import backoff
 import requests
 from polygon import RESTClient

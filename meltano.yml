@@ -93,12 +93,6 @@ plugins:
           - "GOOGL"
           - "META"
 
-      ticker_details:
-        query_params:
-          date: "2025-05-20"
-        other_params:
-          loop_over_dates_gte_date: true
-
       bars_1_second:
         path_params:
           multiplier: 1
