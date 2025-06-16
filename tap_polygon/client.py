@@ -870,10 +870,11 @@ class OptionalTickerPartitionStream(PolygonRestStream):
         Loops over tickers manually instead of calling built-in partitions for flexibility in meltano.yml other_params.
         """
 
-        assert (
-            self._ticker_in_path_params is not None
-            or self._ticker_in_query_params is not None
-        ), "Both _ticker_in_path_params and _ticker_in_query_params cannot be None."
+        if self.use_cached_tickers:
+            assert (
+                self._ticker_in_path_params is not None
+                or self._ticker_in_query_params is not None
+            ), "Both _ticker_in_path_params and _ticker_in_query_params cannot be None."
 
         context, query_params, path_params = self._prepare_context_and_params(context)
 

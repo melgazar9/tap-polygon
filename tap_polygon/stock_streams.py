@@ -162,6 +162,7 @@ class CustomBarsStream(TickerPartitionedStream):
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ms"
     _requires_end_timestamp_in_path_params = True
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("timestamp", th.DateTimeType),
@@ -319,6 +320,7 @@ class DailyTickerSummaryStream(TickerPartitionedStream):
     is_timestamp_replication_key = True
 
     _incremental_timestamp_is_date = True
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("symbol", th.StringType),
@@ -345,7 +347,8 @@ class DailyTickerSummaryStream(TickerPartitionedStream):
             date = datetime.today().date().isoformat()
         return f"{self.url_base}/v1/open-close/{ticker}/{date}"
 
-    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+    @staticmethod
+    def post_process(row: Record, context: Context | None = None) -> dict | None:
         row["pre_market"] = row.pop("preMarket", None)
         row["after_hours"] = row.pop("afterHours", None)
         return row
@@ -544,6 +547,7 @@ class TradeStream(TickerPartitionedStream):
 
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ns"
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("id", th.StringType),
@@ -594,6 +598,7 @@ class QuoteStream(TickerPartitionedStream):
 
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ns"
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("ticker", th.StringType),
@@ -672,6 +677,7 @@ class IndicatorStream(TickerPartitionedStream):
 
     _api_expects_unix_timestamp = True
     _unix_timestamp_unit = "ms"
+    _ticker_in_path_params = True
 
     schema = th.PropertiesList(
         th.Property("timestamp", th.DateTimeType),  # Indicator value timestamp
@@ -1021,7 +1027,8 @@ class IPOsStream(OptionalTickerPartitionStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/ipos"
 
-    def post_process(self, row: Record, context: Context | None = None) -> dict | None:
+    @staticmethod
+    def post_process(row: Record, context: Context | None = None) -> dict | None:
         row["ipo_status"] = row["ipo_status"].lower()
         return row
 
@@ -1169,6 +1176,7 @@ class FinancialsStream(PolygonRestStream):
 
     _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
+    _ticker_in_query_params = True
 
     schema = th.PropertiesList(
         th.Property("acceptance_datetime", th.DateTimeType),
@@ -1413,7 +1421,7 @@ class FinancialsStream(PolygonRestStream):
         return []
 
 
-class ShortInterestStream(TickerPartitionedStream):
+class ShortInterestStream(OptionalTickerPartitionStream):
     """Short Interest Stream"""
 
     name = "short_interest"
@@ -1425,6 +1433,7 @@ class ShortInterestStream(TickerPartitionedStream):
 
     _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
+    _ticker_in_query_params = True
 
     schema = th.PropertiesList(
         th.Property("settlement_date", th.DateType),
@@ -1442,7 +1451,7 @@ class ShortInterestStream(TickerPartitionedStream):
         return f"{self.url_base}/stocks/v1/short-interest"
 
 
-class ShortVolumeStream(TickerPartitionedStream):
+class ShortVolumeStream(OptionalTickerPartitionStream):
     """Short Volume Stream"""
 
     name = "short_volume"
@@ -1454,6 +1463,7 @@ class ShortVolumeStream(TickerPartitionedStream):
 
     _use_cached_tickers_default = False
     _incremental_timestamp_is_date = True
+    _ticker_in_query_params = True
 
     schema = th.PropertiesList(
         th.Property("date", th.DateType),
@@ -1481,7 +1491,7 @@ class ShortVolumeStream(TickerPartitionedStream):
         return f"{self.url_base}/stocks/v1/short-volume"
 
 
-class NewsStream(TickerPartitionedStream):
+class NewsStream(OptionalTickerPartitionStream):
     """News Stream"""
 
     name = "news"
@@ -1492,6 +1502,7 @@ class NewsStream(TickerPartitionedStream):
     is_timestamp_replication_key = True
 
     _use_cached_tickers_default = False
+    _ticker_in_query_params = True
 
     publisher_schema = th.ObjectType(
         th.Property("homepage_url", th.StringType),
