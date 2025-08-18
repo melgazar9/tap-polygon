@@ -69,6 +69,8 @@ plugins:
       - short_volume.*
       - news.*
       - treasury_yields.*
+      - inflation.*
+      - inflation_expectations.*
 
     config:
       # set this for a global start date for all streams -- will be overridden by the streams incremental state if that's more recent.
@@ -355,6 +357,18 @@ plugins:
         query_params:
           date__gte: "2025-05-01"
           date__lte: "2025-05-30"
+          limit: 5000
+
+      inflation:
+        query_params:
+          date__gte: "2025-05-01"
+          date__lte: "2025-06-30"
+          limit: 5000
+
+      inflation_expectations:
+        query_params:
+          date__gte: "2025-05-01"
+          date__lte: "2025-06-30"
           limit: 5000
 
   loaders:

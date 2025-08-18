@@ -1539,39 +1539,3 @@ class NewsStream(OptionalTickerPartitionStream):
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
-
-
-class TreasuryYieldStream(PolygonRestStream):
-    """Yield Stream"""
-
-    name = "treasury_yields"
-
-    primary_keys = ["date"]
-    replication_key = "date"
-    replication_method = "INCREMENTAL"
-    is_timestamp_replication_key = True
-
-    _use_cached_tickers_default = False
-    _incremental_timestamp_is_date = True
-
-    schema = th.PropertiesList(
-        th.Property("date", th.DateType),
-        th.Property("yield_1_month", th.NumberType),
-        th.Property("yield_3_month", th.NumberType),
-        th.Property("yield_6_month", th.NumberType),
-        th.Property("yield_1_year", th.NumberType),
-        th.Property("yield_2_year", th.NumberType),
-        th.Property("yield_3_year", th.NumberType),
-        th.Property("yield_5_year", th.NumberType),
-        th.Property("yield_7_year", th.NumberType),
-        th.Property("yield_10_year", th.NumberType),
-        th.Property("yield_20_year", th.NumberType),
-        th.Property("yield_30_year", th.NumberType),
-    ).to_dict()
-
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
-
-    def get_url(self, context: Context = None):
-        return f"{self.url_base}/fed/v1/treasury-yields"

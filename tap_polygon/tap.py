@@ -8,6 +8,7 @@ from singer_sdk import Tap
 from singer_sdk import typing as th
 
 from tap_polygon.client import TickerStream
+
 from tap_polygon.stock_streams import (
     Bars1DayStream,
     Bars1HourStream,
@@ -43,7 +44,12 @@ from tap_polygon.stock_streams import (
     TickerTypesStream,
     TopMarketMoversStream,
     TradeStream,
+)
+
+from tap_polygon.economy_streams import (
     TreasuryYieldStream,
+    InflationExpectationsStream,
+    InflationStream,
 )
 
 # Streams to implement later:
@@ -115,6 +121,8 @@ class TapPolygon(Tap):
             ShortVolumeStream(self),
             NewsStream(self),
             TreasuryYieldStream(self),
+            InflationExpectationsStream(self),
+            InflationStream(self),
             Bars1SecondStream(self),
             Bars30SecondStream(self),
             Bars1MinuteStream(self),
