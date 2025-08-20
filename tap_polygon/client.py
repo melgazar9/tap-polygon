@@ -3,6 +3,7 @@ import re
 import socket
 import typing as t
 from datetime import datetime, timedelta, timezone
+
 import backoff
 import requests
 from polygon import RESTClient
@@ -381,7 +382,7 @@ class PolygonRestStream(RESTStream):
 
     @staticmethod
     def redact_api_key(msg):
-        return re.sub(r"(apiKey=)[^&\s]+", r"\1<REDACTED>", msg)
+        return re.sub(r"(apiKey=)([^\s&]+)", r"\1<REDACTED>", msg)
 
     @backoff.on_exception(
         backoff.expo,
@@ -389,6 +390,11 @@ class PolygonRestStream(RESTStream):
         max_tries=20,
         max_time=5000,
         jitter=backoff.full_jitter,
+        giveup=lambda e: isinstance(e, requests.exceptions.HTTPError) and e.response is not None and e.response.status_code == 403,
+        on_backoff=lambda details: logging.warning(
+            f"API request failed, retrying in {details['wait']:.1f}s "
+            f"(attempt {details['tries']}): {details['exception']}"
+        ),
     )
     def get_response(self, url, query_params):
         try:
@@ -396,18 +402,34 @@ class PolygonRestStream(RESTStream):
             response.raise_for_status()
             return response
         except requests.exceptions.ConnectionError as ce:
+            log_url = self.redact_api_key(url)
+            log_exception = self.redact_api_key(str(ce))
             if isinstance(ce.__cause__, socket.gaierror):
-                logging.error(f"DNS resolution failed for {url}: {ce}")
+                logging.error(f"DNS resolution failed for {log_url}: {log_exception}")
             else:
-                logging.error(f"Connection error for {url}: {ce}")
+                logging.error(f"Connection error for {log_url}: {log_exception}")
             raise
         except requests.HTTPError as e:
+            log_exception = self.redact_api_key(str(e))
             if e.response is not None and e.response.status_code in (404, 204):
+                log_url = self.redact_api_key(url)
                 logging.warning(
-                    f"No data for {url} (status {e.response.status_code}): {e}"
+                    f"No data for {log_url} (status {e.response.status_code}): {log_exception}"
                 )
                 return None
-            raise
+            logging.error(f"HTTP Error: {log_exception}")
+            redacted_url = self.redact_api_key(e.request.url if e.request else url)
+            error_message = (
+                f"{e.response.status_code} Client Error: {e.response.reason} for url: {redacted_url}"
+                if e.response and e.request
+                else str(e)
+            )
+            error_message = self.redact_api_key(error_message)
+            raise requests.exceptions.HTTPError(
+                error_message,
+                response=e.response,
+                request=e.request,
+            )
 
     def paginate_records(self, context: Context) -> t.Iterable[dict[str, t.Any]]:
         query_params = context.get("query_params", {}).copy()
@@ -763,10 +785,10 @@ class PolygonRestStream(RESTStream):
         return False
 
 
-class TickerStream(PolygonRestStream):
+class StockTickerStream(PolygonRestStream):
     """Fetch all tickers from Polygon."""
 
-    name = "tickers"
+    name = "stock_tickers"
 
     primary_keys = ["ticker"]
     _ticker_in_path_params = True
@@ -801,22 +823,22 @@ class TickerStream(PolygonRestStream):
         return f"{self.url_base}/v3/reference/tickers"
 
     def get_ticker_list(self) -> list[str] | None:
-        tickers_cfg = self.config.get("tickers", {})
-        tickers = tickers_cfg.get("select_tickers") if tickers_cfg else None
+        stock_tickers_cfg = self.config.get("stock_tickers", {})
+        stock_tickers = stock_tickers_cfg.get("select_tickers") if stock_tickers_cfg else None
 
-        if not tickers or tickers in ("*", ["*"]):
+        if not stock_tickers or stock_tickers in ("*", ["*"]):
             return None
 
-        if isinstance(tickers, str):
+        if isinstance(stock_tickers, str):
             try:
-                return tickers.split(",")
+                return stock_tickers.split(",")
             except AttributeError:
                 raise
 
-        if isinstance(tickers, list):
-            if tickers == ["*"]:
+        if isinstance(stock_tickers, list):
+            if stock_tickers == ["*"]:
                 return None
-            return tickers
+            return stock_tickers
         return None
 
     def get_child_context(self, record, context):
@@ -840,24 +862,10 @@ class TickerStream(PolygonRestStream):
                 yield from self.paginate_records(context)
 
 
-class CachedTickerProvider:
-    def __init__(self, tap):
-        self.tap = tap
-        self._tickers = None
-
-    def get_tickers(self):
-        if self._tickers is None:
-            logging.info(
-                "Tickers have not been downloaded yet. Retrieving from tap cache..."
-            )
-            self._tickers = self.tap.get_cached_tickers()
-        return self._tickers
-
-
 class TickerPartitionedStream(PolygonRestStream):
     @property
     def partitions(self):
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_tickers()]
+        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_stock_tickers()]
 
 
 class OptionalTickerPartitionStream(PolygonRestStream):
@@ -894,7 +902,7 @@ class OptionalTickerPartitionStream(PolygonRestStream):
             )
 
         if self.use_cached_tickers:
-            ticker_records = self.tap.get_cached_tickers()
+            ticker_records = self.tap.get_cached_stock_tickers()
             for ticker_record in ticker_records:
                 context["query_params"] = query_params
                 context["path_params"] = path_params

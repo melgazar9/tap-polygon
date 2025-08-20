@@ -7,7 +7,16 @@ import typing as t
 from singer_sdk import Tap
 from singer_sdk import typing as th
 
-from tap_polygon.client import TickerStream
+from tap_polygon.client import StockTickerStream
+
+from tap_polygon.base_streams import (
+    DailyMarketSummaryStream,
+    DailyTickerSummaryStream,
+    PreviousDayBarSummaryStream,
+    TickerDetailsStream,
+    TopMarketMoversStream,
+    TradeStream,
+)
 
 from tap_polygon.stock_streams import (
     Bars1DayStream,
@@ -20,8 +29,6 @@ from tap_polygon.stock_streams import (
     Bars30MinuteStream,
     Bars30SecondStream,
     ConditionCodesStream,
-    DailyMarketSummaryStream,
-    DailyTickerSummaryStream,
     DividendsStream,
     EmaStream,
     ExchangesStream,
@@ -32,24 +39,20 @@ from tap_polygon.stock_streams import (
     MarketStatusStream,
     NewsStream,
     PolygonRestStream,
-    PreviousDayBarSummaryStream,
     RelatedCompaniesStream,
     RSIStream,
     ShortInterestStream,
     ShortVolumeStream,
     SmaStream,
     SplitsStream,
-    TickerDetailsStream,
     TickerEventsStream,
     TickerTypesStream,
-    TopMarketMoversStream,
-    TradeStream,
 )
 
 from tap_polygon.economy_streams import (
-    TreasuryYieldStream,
     InflationExpectationsStream,
     InflationStream,
+    TreasuryYieldStream,
 )
 
 # Streams to implement later:
@@ -75,27 +78,27 @@ class TapPolygon(Tap):
     ).to_dict()
 
     _cached_tickers: t.List[dict] | None = None
-    _tickers_stream_instance: TickerStream | None = None
+    _tickers_stream_instance: StockTickerStream | None = None
 
-    def get_cached_tickers(self) -> t.List[dict]:
+    def get_stock_tickers_stream(self) -> StockTickerStream:
+        if self._tickers_stream_instance is None:
+            self.logger.info("Creating StockTickerStream instance...")
+            self._tickers_stream_instance = StockTickerStream(self)
+        return self._tickers_stream_instance
+
+    def get_cached_stock_tickers(self) -> t.List[dict]:
         if self._cached_tickers is None:
             self.logger.info("Fetching and caching stock tickers...")
-            tickers_stream = self.get_tickers_stream()
-            self._cached_tickers = list(tickers_stream.get_records(context=None))
+            stock_tickers_stream = self.get_stock_tickers_stream()
+            self._cached_tickers = list(stock_tickers_stream.get_records(context=None))
             self.logger.info(f"Cached {len(self._cached_tickers)} tickers.")
         return self._cached_tickers
 
-    def get_tickers_stream(self) -> TickerStream:
-        if self._tickers_stream_instance is None:
-            self.logger.info("Creating TickerStream instance...")
-            self._tickers_stream_instance = TickerStream(self)
-        return self._tickers_stream_instance
-
     def discover_streams(self) -> list[PolygonRestStream]:
-        tickers_stream = self.get_tickers_stream()
+        stock_tickers_stream = self.get_stock_tickers_stream()
 
         streams: list[PolygonRestStream] = [
-            tickers_stream,
+            stock_tickers_stream,
             TickerDetailsStream(self),
             TickerTypesStream(self),
             RelatedCompaniesStream(self),

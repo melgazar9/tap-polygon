@@ -33,7 +33,7 @@ plugins:
       description: Initial date to start extracting data from
 
     select:
-      - tickers.*
+      - stock_tickers.*
       - ticker_details.*
       - ticker_types.*
       - related_companies.*
@@ -87,12 +87,11 @@ plugins:
       # The tickers that are set here persist across all streams that require a single stock ticker as input.
       # To run different tickers across different streams you need to call the tap N times,
       # where N is the number of distinct groups of ticker.
-      tickers:
+      stock_tickers:
         query_params:
           sort: ticker
         select_tickers:
           - "AAPL"
-          - "GOOGL"
           - "META"
 
       bars_1_second:
@@ -100,7 +99,7 @@ plugins:
           multiplier: 1
           timespan: "second"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -113,7 +112,7 @@ plugins:
           multiplier: 30
           timespan: "second"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -126,7 +125,7 @@ plugins:
           multiplier: 1
           timespan: "minute"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -139,7 +138,7 @@ plugins:
           multiplier: 5
           timespan: "minute"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -152,7 +151,7 @@ plugins:
           multiplier: 30
           timespan: "minute"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -165,7 +164,7 @@ plugins:
           multiplier: 1
           timespan: "hour"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -178,7 +177,7 @@ plugins:
           multiplier: 1
           timespan: "day"
           from: "2025-01-06"
-          to: "2025-01-09"
+          to: "2025-01-07"
         query_params:
           adjusted: true
           sort: "asc"
@@ -214,7 +213,7 @@ plugins:
 
       daily_market_summary:
         path_params:
-          date: "2025-05-20"  # leave blank or set to "" to get current day
+          date: "2025-08-18"  # leave blank or set to "" to get current day
         query_params:
           adjusted: true
           include_otc: true
@@ -223,7 +222,7 @@ plugins:
 
       daily_ticker_summary:
         path_params:
-          date: "2025-05-20"
+          date: "2025-08-18"
         query_params:
           adjusted: true
         other_params:
@@ -239,16 +238,16 @@ plugins:
         query_params:
           sort: timestamp
           order: "asc"
-          timestamp__gte: "2025-05-20T22:59:00Z"
-          timestamp__lte: "2025-05-20T23:59:00Z"
+          timestamp__gte: "2025-08-17T22:59:00Z"
+          timestamp__lte: "2025-08-19T23:59:00Z"
           limit: 50000
         other_params:
           use_cached_tickers: true
 
       quotes:
         query_params:
-          timestamp__gte: "2025-05-20T23:59:00Z"
-          timestamp__lte: "2025-05-21T00:59:00Z"
+          timestamp__gte: "2025-05-18T23:59:00Z"
+          timestamp__lte: "2025-08-19T00:59:00Z"
           sort: timestamp
           order: asc
         other_params:
@@ -257,9 +256,9 @@ plugins:
       sma:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
-          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          timestamp__lte: "2025-01-19T01:00:00.999Z"
           order: asc
-          timespan: hour
+          timespan: day
           window: 10
           series_type: close
           expand_underlying: true
@@ -269,9 +268,9 @@ plugins:
       ema:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
-          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          timestamp__lte: "2025-01-19T01:00:00.999Z"
           order: asc
-          timespan: hour
+          timespan: day
           window: 10
           series_type: close
           expand_underlying: true
@@ -281,9 +280,9 @@ plugins:
       macd:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
-          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          timestamp__lte: "2025-01-19T01:00:00.999Z"
           order: asc
-          timespan: hour
+          timespan: day
           short_window: 12
           long_window: 26
           signal_window: 9
@@ -295,9 +294,9 @@ plugins:
       rsi:
         query_params:
           timestamp__gte: "2025-01-01T00:00:00.999Z"
-          timestamp__lte: "2025-01-30T01:00:00.999Z"
+          timestamp__lte: "2025-01-19T01:00:00.999Z"
           order: "asc"
-          timespan: "minute"
+          timespan: day
           window: 18
           series_type: close
           expand_underlying: true
@@ -305,12 +304,12 @@ plugins:
 
       ipos:
         query_params:
-          listing_date__gte: "2018-12-10"
+          listing_date__gte: "2025-01-01"
           listing_date__lte: "2025-05-30"
 
       splits:
         query_params:
-          execution_date__gte: "2023-08-21"
+          execution_date__gte: "2025-01-21"
           limit: 1000
           order: asc
 
@@ -324,22 +323,22 @@ plugins:
       financials:
         query_params:
           filing_date__gte: "2025-01-01"
-          filing_date__lte: "2025-06-01"
+          filing_date__lte: "2025-02-01"
           order: asc
           include_sources: true
           limit: 100
 
       short_interest:
         query_params:
-          settlement_date__gte: "2020-01-01"
+          settlement_date__gte: "2025-07-01"
           limit: 10000
         other_params:
           use_cached_tickers: true
 
       short_volume:
         query_params:
-          date__gte: "2025-05-20"
-          date__lte: "2025-06-10"
+          date__gte: "2025-07-15"
+          date__lte: "2025-08-18"
           order: asc
           limit: 10000
         other_params:
@@ -348,7 +347,7 @@ plugins:
       news:
         query_params:
           published_utc__gte: "2025-05-21"
-          published_utc__lte: "2025-05-23"
+          published_utc__lte: "2025-05-22"
           order: asc
         other_params:
           use_cached_tickers: true

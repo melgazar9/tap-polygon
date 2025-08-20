@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import typing as t
 from singer_sdk import typing as th
 from singer_sdk.helpers.types import Context
 
@@ -79,9 +78,10 @@ class InflationStream(PolygonRestStream):
     def get_url(self, context: Context = None):
         return f"{self.url_base}/fed/v1/inflation"
 
+
 class InflationExpectationsStream(PolygonRestStream):
     """Inflation Expectations Stream
-    
+
     Provides a broad view of how inflation is expected to evolve over time in the U.S. economy.
     Includes market-based and model-based inflation expectations across various time horizons.
     """
