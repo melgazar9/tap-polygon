@@ -71,6 +71,7 @@ plugins:
       - treasury_yields.*
       - inflation.*
       - inflation_expectations.*
+      - options_contracts.*
 
     config:
       # set this for a global start date for all streams -- will be overridden by the streams incremental state if that's more recent.
@@ -89,6 +90,14 @@ plugins:
       # where N is the number of distinct groups of ticker.
       stock_tickers:
         query_params:
+          sort: ticker
+        select_tickers:
+          - "AAPL"
+          - "META"
+
+      option_tickers:
+        query_params:
+          expired: false
           sort: ticker
         select_tickers:
           - "AAPL"
@@ -369,6 +378,10 @@ plugins:
           date__gte: "2025-05-01"
           date__lte: "2025-06-30"
           limit: 5000
+
+      options_contract_details:
+        path_params:
+          options_ticker: "O:AAPL251219C00150000"
 
   loaders:
   - name: target-jsonl

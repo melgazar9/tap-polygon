@@ -7,7 +7,6 @@ from datetime import datetime, timedelta, timezone
 import backoff
 import requests
 from polygon import RESTClient
-from singer_sdk import typing as th
 from singer_sdk.exceptions import ConfigValidationError
 from singer_sdk.helpers._state import increment_state
 from singer_sdk.helpers.types import Context
@@ -390,7 +389,9 @@ class PolygonRestStream(RESTStream):
         max_tries=20,
         max_time=5000,
         jitter=backoff.full_jitter,
-        giveup=lambda e: isinstance(e, requests.exceptions.HTTPError) and e.response is not None and e.response.status_code == 403,
+        giveup=lambda e: isinstance(e, requests.exceptions.HTTPError)
+        and e.response is not None
+        and e.response.status_code == 403,
         on_backoff=lambda details: logging.warning(
             f"API request failed, retrying in {details['wait']:.1f}s "
             f"(attempt {details['tries']}): {details['exception']}"
@@ -785,60 +786,31 @@ class PolygonRestStream(RESTStream):
         return False
 
 
-class StockTickerStream(PolygonRestStream):
-    """Fetch all tickers from Polygon."""
-
-    name = "stock_tickers"
-
-    primary_keys = ["ticker"]
-    _ticker_in_path_params = True
-
-    schema = th.PropertiesList(
-        th.Property("cik", th.StringType),
-        th.Property("ticker", th.StringType),
-        th.Property("name", th.StringType),
-        th.Property("active", th.BooleanType),
-        th.Property("currency_symbol", th.StringType),
-        th.Property("currency_name", th.StringType),
-        th.Property("base_currency_symbol", th.StringType),
-        th.Property("composite_figi", th.StringType),
-        th.Property("base_currency_name", th.StringType),
-        th.Property("delisted_utc", th.StringType),
-        th.Property("last_updated_utc", th.StringType),
-        th.Property("locale", th.StringType),
-        th.Property("market", th.StringType),
-        th.Property("primary_exchange", th.StringType),
-        th.Property("share_class_figi", th.StringType),
-        th.Property("type", th.StringType),
-        th.Property("source_feed", th.StringType),
-    ).to_dict()
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+class BaseTickerStream(PolygonRestStream):
+    market = None
+    ticker_param = "ticker"  # Can be overridden by subclasses
 
     def _break_loop_check(self, next_url, replication_key_value=None) -> bool:
         return not next_url
 
-    def get_url(self, context: Context = None) -> str:
-        return f"{self.url_base}/v3/reference/tickers"
-
     def get_ticker_list(self) -> list[str] | None:
-        stock_tickers_cfg = self.config.get("stock_tickers", {})
-        stock_tickers = stock_tickers_cfg.get("select_tickers") if stock_tickers_cfg else None
+        assert self.market is not None
+        tickers_cfg = self.config.get(f"{self.market}_tickers", {})
+        tickers = tickers_cfg.get("select_tickers") if tickers_cfg else None
 
-        if not stock_tickers or stock_tickers in ("*", ["*"]):
+        if not tickers or tickers in ("*", ["*"]):
             return None
 
-        if isinstance(stock_tickers, str):
+        if isinstance(tickers, str):
             try:
-                return stock_tickers.split(",")
+                return tickers.split(",")
             except AttributeError:
                 raise
 
-        if isinstance(stock_tickers, list):
-            if stock_tickers == ["*"]:
+        if isinstance(tickers, list):
+            if tickers == ["*"]:
                 return None
-            return stock_tickers
+            return tickers
         return None
 
     def get_child_context(self, record, context):
@@ -857,7 +829,7 @@ class StockTickerStream(PolygonRestStream):
         else:
             logging.info(f"Pulling tickers: {ticker_list}")
             for ticker in ticker_list:
-                query_params.update({"ticker": ticker})
+                query_params.update({self.ticker_param: ticker})
                 context["query_params"] = query_params
                 yield from self.paginate_records(context)
 

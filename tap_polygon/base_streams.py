@@ -406,7 +406,9 @@ class TopMarketMoversStream(PolygonRestStream):
                         self.post_process(record)
                         yield record
                 elif response_data.get("status") == "NOT_AUTHORIZED":
-                    self.logger.warning(f"Not authorized for top market movers: {response_data.get('message')}")
+                    self.logger.warning(
+                        f"Not authorized for top market movers: {response_data.get('message')}"
+                    )
                     return
         else:
             direction = self.path_params.get("direction")
@@ -420,7 +422,9 @@ class TopMarketMoversStream(PolygonRestStream):
                     self.post_process(record)
                     yield record
             elif response_data.get("status") == "NOT_AUTHORIZED":
-                self.logger.warning(f"Not authorized for top market movers: {response_data.get('message')}")
+                self.logger.warning(
+                    f"Not authorized for top market movers: {response_data.get('message')}"
+                )
                 return
 
     def post_process(self, row: Record, context: Context | None = None) -> dict | None:

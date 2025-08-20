@@ -6,19 +6,54 @@ import typing as t
 from dataclasses import asdict
 
 from singer_sdk import typing as th
-
 from singer_sdk.helpers.types import Context, Record
 
 from tap_polygon.base_streams import (
     CustomBarsStream,
     IndicatorStream,
 )
-
 from tap_polygon.client import (
+    BaseTickerStream,
     OptionalTickerPartitionStream,
     PolygonRestStream,
     TickerPartitionedStream,
 )
+
+
+class StockTickerStream(BaseTickerStream):
+    """Fetch all tickers from Polygon."""
+
+    name = "stock_tickers"
+    market = "stock"
+
+    primary_keys = ["ticker"]
+    _ticker_in_path_params = True
+
+    schema = th.PropertiesList(
+        th.Property("cik", th.StringType),
+        th.Property("ticker", th.StringType),
+        th.Property("name", th.StringType),
+        th.Property("active", th.BooleanType),
+        th.Property("currency_symbol", th.StringType),
+        th.Property("currency_name", th.StringType),
+        th.Property("base_currency_symbol", th.StringType),
+        th.Property("composite_figi", th.StringType),
+        th.Property("base_currency_name", th.StringType),
+        th.Property("delisted_utc", th.StringType),
+        th.Property("last_updated_utc", th.StringType),
+        th.Property("locale", th.StringType),
+        th.Property("market", th.StringType),
+        th.Property("primary_exchange", th.StringType),
+        th.Property("share_class_figi", th.StringType),
+        th.Property("type", th.StringType),
+        th.Property("source_feed", th.StringType),
+    ).to_dict()
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def get_url(self, context: Context = None) -> str:
+        return f"{self.url_base}/v3/reference/tickers"
 
 
 class TickerTypesStream(PolygonRestStream):
