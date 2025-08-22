@@ -3,6 +3,7 @@ import re
 import socket
 import typing as t
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import backoff
 import requests
@@ -20,9 +21,11 @@ class PolygonRestStream(RESTStream):
     _use_cached_tickers_default = True
     _requires_end_timestamp_in_query_params = False
     _requires_end_timestamp_in_path_params = False
+    _ticker_param = "ticker"
 
     def __init__(self, tap):
         super().__init__(tap=tap)
+        self.tap = tap
         self.client = RESTClient(self.config["api_key"])
         self.parse_config_params()
 
@@ -197,7 +200,7 @@ class PolygonRestStream(RESTStream):
                 if dt_value.tzinfo is None
                 else dt_value
             )
-        if isinstance(dt_value, (int, float)):
+        if isinstance(dt_value, (int, float, Decimal)):
             try:
                 seconds = self._timestamp_to_epoch(dt_value)
                 return datetime.fromtimestamp(seconds, tz=timezone.utc)
@@ -213,7 +216,7 @@ class PolygonRestStream(RESTStream):
         return None
 
     @staticmethod
-    def _timestamp_to_epoch(ts: int | float | str | None) -> float | None:
+    def _timestamp_to_epoch(ts: int | float | Decimal | str | None) -> float | None:
         if ts is None:
             return None
         if isinstance(ts, (int, float)):
@@ -223,7 +226,7 @@ class PolygonRestStream(RESTStream):
                 return abs(ts) / 1e6
             if abs(ts) > 1e10:  # milliseconds
                 return ts / 1e3
-            return float(ts)
+            return ts
         return None
 
     def get_starting_replication_key_value(
@@ -399,7 +402,7 @@ class PolygonRestStream(RESTStream):
     )
     def get_response(self, url, query_params):
         try:
-            response = requests.get(url, params=query_params, timeout=180)
+            response = self.requests_session.get(url, params=query_params)
             response.raise_for_status()
             return response
         except requests.exceptions.ConnectionError as ce:
@@ -443,7 +446,7 @@ class PolygonRestStream(RESTStream):
         )
 
         request_context = dict(
-            ticker=context.get("ticker"),
+            ticker=context.get(self._ticker_param),
             query_params=query_params,
             path_params=path_params,
         )
@@ -474,6 +477,12 @@ class PolygonRestStream(RESTStream):
                 data = response.json()
             except requests.exceptions.RequestException as e:
                 safe_exception = self.redact_api_key(str(e))
+                # For 403 errors, log and continue to next ticker instead of breaking
+                if isinstance(e, requests.exceptions.HTTPError) and e.response is not None and e.response.status_code == 403:
+                    logging.warning(
+                        f"*** Access denied (403) for {self.name} at {request_url}: {safe_exception} - skipping this ticker ***"
+                    )
+                    break  # Break the pagination loop for this ticker, but don't crash
                 logging.error(
                     f"*** Request failed for {self.name} at {request_url}: {safe_exception} ***"
                 )
@@ -786,60 +795,6 @@ class PolygonRestStream(RESTStream):
         return False
 
 
-class BaseTickerStream(PolygonRestStream):
-    market = None
-    ticker_param = "ticker"  # Can be overridden by subclasses
-
-    def _break_loop_check(self, next_url, replication_key_value=None) -> bool:
-        return not next_url
-
-    def get_ticker_list(self) -> list[str] | None:
-        assert self.market is not None
-        tickers_cfg = self.config.get(f"{self.market}_tickers", {})
-        tickers = tickers_cfg.get("select_tickers") if tickers_cfg else None
-
-        if not tickers or tickers in ("*", ["*"]):
-            return None
-
-        if isinstance(tickers, str):
-            try:
-                return tickers.split(",")
-            except AttributeError:
-                raise
-
-        if isinstance(tickers, list):
-            if tickers == ["*"]:
-                return None
-            return tickers
-        return None
-
-    def get_child_context(self, record, context):
-        return {"ticker": record.get("ticker")}
-
-    def get_records(
-        self, context: dict[str, t.Any] | None
-    ) -> t.Iterable[dict[str, t.Any]]:
-        context = {} if context is None else context
-        ticker_list = self.get_ticker_list()
-        query_params = self.query_params.copy()
-        if not ticker_list:
-            logging.info("Pulling all tickers...")
-            context["query_params"] = query_params
-            yield from self.paginate_records(context)
-        else:
-            logging.info(f"Pulling tickers: {ticker_list}")
-            for ticker in ticker_list:
-                query_params.update({self.ticker_param: ticker})
-                context["query_params"] = query_params
-                yield from self.paginate_records(context)
-
-
-class TickerPartitionedStream(PolygonRestStream):
-    @property
-    def partitions(self):
-        return [{"ticker": t["ticker"]} for t in self.tap.get_cached_stock_tickers()]
-
-
 class OptionalTickerPartitionStream(PolygonRestStream):
     _ticker_in_path_params = None
     _ticker_in_query_params = None
@@ -875,13 +830,14 @@ class OptionalTickerPartitionStream(PolygonRestStream):
 
         if self.use_cached_tickers:
             ticker_records = self.tap.get_cached_stock_tickers()
+
             for ticker_record in ticker_records:
                 context["query_params"] = query_params
                 context["path_params"] = path_params
                 if self._ticker_in_query_params:
-                    query_params["ticker"] = ticker_record["ticker"]
+                    query_params[self._ticker_param] = ticker_record["ticker"]
                 if self._ticker_in_path_params:
-                    path_params["ticker"] = ticker_record["ticker"]
+                    path_params[self._ticker_param] = ticker_record["ticker"]
                 yield from self.paginate_records(context)
         else:
             yield from self.paginate_records(context)

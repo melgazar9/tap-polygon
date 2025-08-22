@@ -4,20 +4,27 @@ from __future__ import annotations
 
 import typing as t
 from dataclasses import asdict
+from datetime import datetime
 
 from singer_sdk import typing as th
 from singer_sdk.helpers.types import Context, Record
 
 from tap_polygon.base_streams import (
-    CustomBarsStream,
-    IndicatorStream,
-)
-from tap_polygon.client import (
     BaseTickerStream,
-    OptionalTickerPartitionStream,
-    PolygonRestStream,
-    TickerPartitionedStream,
+    BaseCustomBarsStream,
+    BaseDailyMarketSummaryStream,
+    BaseDailyTickerSummaryStream,
+    BaseIndicatorStream,
+    BaseLastQuoteStream,
+    BaseLastTradeStream,
+    BasePreviousDayBarSummaryStream,
+    BaseQuoteStream,
+    BaseTickerDetailsStream,
+    BaseTickerPartitionedStream,
+    BaseTopMarketMoversStream,
+    BaseTradeStream,
 )
+from tap_polygon.client import OptionalTickerPartitionStream, PolygonRestStream
 
 
 class StockTickerStream(BaseTickerStream):
@@ -49,11 +56,90 @@ class StockTickerStream(BaseTickerStream):
         th.Property("source_feed", th.StringType),
     ).to_dict()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     def get_url(self, context: Context = None) -> str:
         return f"{self.url_base}/v3/reference/tickers"
+
+
+class StockTickerPartitionedStream(BaseTickerPartitionedStream):
+    @property
+    def partitions(self):
+        return [{"ticker": t["ticker"]} for t in self._tap.get_cached_stock_tickers()]
+
+
+class StockTickerDetailsStream(StockTickerPartitionedStream, BaseTickerDetailsStream):
+    name = "stock_ticker_details"
+
+
+class StockDailyTickerSummaryStream(BaseDailyTickerSummaryStream):
+    name = "stock_daily_ticker_summary"
+
+class StockIndicatorStream(StockTickerPartitionedStream, BaseIndicatorStream):
+    def get_url(self, context: Context) -> str:
+        raise ValueError("URL Must be overridden by subclass.")
+
+class StockDailyMarketSummaryStream(BaseDailyMarketSummaryStream):
+    name = "stock_daily_market_summary"
+
+    def get_url(self, context: Context):
+        date = context.get("path_params").get("date")
+        if date is None:
+            date = datetime.today().date().isoformat()
+        return f"{self.url_base}/v2/aggs/grouped/locale/us/market/stocks/{date}"
+
+
+class StockPreviousDayBarSummaryStream(BasePreviousDayBarSummaryStream):
+    """Retrieve the previous trading day's OHLCV data for a specified stock ticker.
+    Not really useful given we have the other streams."""
+
+    name = "stock_previous_day_bar"
+
+
+class StockTopMarketMoversStream(BaseTopMarketMoversStream):
+    """
+    Retrieve snapshot data highlighting the top 20 gainers or losers in the U.S. stock market.
+    Gainers are stocks with the largest percentage increase since the previous day’s close, and losers are those
+    with the largest percentage decrease. Only tickers with a minimum trading volume of 10,000 are included.
+    Snapshot data is cleared daily at 3:30 AM EST and begins repopulating as exchanges report new information,
+    typically starting around 4:00 AM EST.
+    """
+
+    name = "stock_top_market_movers"
+
+    def get_url(self, context: Context):
+        direction = context.get("direction")
+        return f"{self.url_base}/v2/snapshot/locale/us/markets/stocks/{direction}"
+
+
+class StockTradeStream(BaseTradeStream):
+    """
+    Retrieve comprehensive, tick-level trade data for a specified stock ticker within a defined time range.
+    Each record includes price, size, exchange, trade conditions, and precise timestamp information.
+    This granular data is foundational for constructing aggregated bars and performing in-depth analyses, as it captures
+    every eligible trade that contributes to calculations of open, high, low, and close (OHLC) values.
+    By leveraging these trades, users can refine their understanding of intraday price movements, test and optimize
+    algorithmic strategies, and ensure compliance by maintaining an auditable record of market activity.
+
+    Use Cases: Intraday analysis, algorithmic trading, market microstructure research, data integrity and compliance.
+
+    NOTE: This stream cannot stream multiple tickers at once, so if we want to stream or fetch trades for multiple
+    tickers you need to send multiple parallel or sequential API requests (one for each ticker).
+    Data is delayed 15 minutes for developer plan. For real-time data top the Advanced Subscription is needed.
+    """
+
+    name = "stock_trades"
+
+
+class StockLastTradeStream(BaseLastTradeStream):
+    name = "stock_last_trade"
+
+
+class StockQuoteStream(BaseQuoteStream):
+    name = "stock_quotes"
+
+
+class StockLastQuoteStream(BaseLastQuoteStream):
+    name = "stock_last_quote"
 
 
 class TickerTypesStream(PolygonRestStream):
@@ -79,7 +165,7 @@ class TickerTypesStream(PolygonRestStream):
             yield tt
 
 
-class RelatedCompaniesStream(TickerPartitionedStream):
+class RelatedCompaniesStream(StockTickerPartitionedStream):
     name = "related_companies"
 
     primary_keys = ["ticker"]
@@ -91,71 +177,83 @@ class RelatedCompaniesStream(TickerPartitionedStream):
         th.Property("status", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context):
-        ticker = context.get("ticker")
+        ticker = context.get(self._ticker_param)
         return f"{self.url_base}/v1/related-companies/{ticker}"
 
     def post_process(self, row: Record, context: Context | None = None) -> dict | None:
         row["related_company"] = row["ticker"]
-        row["ticker"] = context.get("ticker")
+        row["ticker"] = context.get(self._ticker_param)
         return row
 
 
-class Bars1SecondStream(CustomBarsStream):
-    name = "bars_1_second"
+class StockBars1SecondStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_second"
 
 
-class Bars30SecondStream(CustomBarsStream):
-    name = "bars_30_second"
+class StockBars30SecondStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_30_second"
 
 
-class Bars1MinuteStream(CustomBarsStream):
-    name = "bars_1_minute"
+class StockBars1MinuteStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_minute"
 
 
-class Bars5MinuteStream(CustomBarsStream):
-    name = "bars_5_minute"
+class StockBars5MinuteStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_5_minute"
 
 
-class Bars30MinuteStream(CustomBarsStream):
-    name = "bars_30_minute"
+class StockBars30MinuteStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_30_minute"
 
 
-class Bars1HourStream(CustomBarsStream):
-    name = "bars_1_hour"
+class StockBars1HourStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_hour"
 
 
-class Bars1DayStream(CustomBarsStream):
-    name = "bars_1_day"
+class StockBars1DayStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_day"
 
 
-class Bars1WeekStream(CustomBarsStream):
-    name = "bars_1_week"
+class StockBars1WeekStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_week"
 
 
-class Bars1MonthStream(CustomBarsStream):
-    name = "bars_1_month"
+class StockBars1MonthStream(StockTickerPartitionedStream, BaseCustomBarsStream):
+    name = "stock_bars_1_month"
 
 
-class SmaStream(IndicatorStream):
-    name = "sma"
+class SmaStream(StockIndicatorStream):
+    name = "stock_sma"
+
+    def get_url(self, context: Context):
+        ticker = context.get(self._ticker_param)
+        return f"{self.base_indicator_url()}/sma/{ticker}"
 
 
-class EmaStream(IndicatorStream):
-    name = "ema"
+class EmaStream(StockIndicatorStream):
+    name = "stock_ema"
+
+    def get_url(self, context: Context):
+        ticker = context.get(self._ticker_param)
+        return f"{self.base_indicator_url()}/ema/{ticker}"
 
 
-class MACDStream(IndicatorStream):
-    name = "macd"
+class MACDStream(StockIndicatorStream):
+    name = "stock_macd"
+
+    def get_url(self, context: Context):
+        ticker = context.get(self._ticker_param)
+        return f"{self.base_indicator_url()}/macd/{ticker}"
 
 
-class RSIStream(IndicatorStream):
-    name = "rsi"
+class RSIStream(StockIndicatorStream):
+    name = "stock_rsi"
 
+    def get_url(self, context: Context):
+        ticker = context.get(self._ticker_param)
+        return f"{self.base_indicator_url()}/rsi/{ticker}"
 
 class ExchangesStream(PolygonRestStream):
     """Fetch Exchanges"""
@@ -179,9 +277,6 @@ class ExchangesStream(PolygonRestStream):
         th.Property("url", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/exchanges"
@@ -205,9 +300,6 @@ class MarketHolidaysStream(PolygonRestStream):
         th.Property("status", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v1/marketstatus/upcoming"
@@ -339,9 +431,6 @@ class ConditionCodesStream(PolygonRestStream):
         ),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/conditions"
@@ -396,9 +485,6 @@ class IPOsStream(OptionalTickerPartitionStream):
         th.Property("us_code", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/ipos"
@@ -431,9 +517,6 @@ class SplitsStream(OptionalTickerPartitionStream):
         th.Property("ticker", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/splits"
@@ -474,15 +557,12 @@ class DividendsStream(OptionalTickerPartitionStream):
         th.Property("frequency", th.IntegerType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v3/reference/dividends"
 
 
-class TickerEventsStream(TickerPartitionedStream):
+class TickerEventsStream(StockTickerPartitionedStream):
     """Ticker Events Stream"""
 
     name = "ticker_events"
@@ -500,12 +580,9 @@ class TickerEventsStream(TickerPartitionedStream):
         th.Property("ticker", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context):
-        ticker = context.get("ticker", {})
+        ticker = context.get(self._ticker_param, {})
         return f"{self.url_base}/vX/reference/tickers/{ticker}/events"
 
     def parse_response(self, record: dict, context: dict) -> t.Iterable[dict]:
@@ -780,9 +857,6 @@ class FinancialsStream(PolygonRestStream):
         th.Property("timeframe", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/vX/reference/financials"
@@ -820,9 +894,6 @@ class ShortInterestStream(OptionalTickerPartitionStream):
         th.Property("days_to_cover", th.NumberType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/v1/short-interest"
@@ -860,9 +931,6 @@ class ShortVolumeStream(OptionalTickerPartitionStream):
         th.Property("nyse_short_volume_exempt", th.IntegerType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/stocks/v1/short-volume"
@@ -910,9 +978,6 @@ class NewsStream(OptionalTickerPartitionStream):
         th.Property("image_url", th.StringType),
     ).to_dict()
 
-    def __init__(self, tap):
-        super().__init__(tap)
-        self.tap = tap
 
     def get_url(self, context: Context = None):
         return f"{self.url_base}/v2/reference/news"
