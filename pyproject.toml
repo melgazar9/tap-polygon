@@ -1,29 +1,28 @@
-[tool.poetry]
+[project]
 name = "tap-polygon"
 version = "0.0.1"
 description = "Singer tap for Polygon, built with the Meltano Singer SDK."
-authors = ["Matt Elgazar <melgazar9@gmail.com>"]
+authors = [{name = "Matt Elgazar", email = "melgazar9@gmail.com"}]
 readme = "README.md"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 keywords = ["ELT", "Polygon"]
-packages = [{ include = "tap_polygon" }]
+requires-python = ">=3.10,<4.0"
 
-[tool.poetry.dependencies]
-python = ">=3.10,<4.0"
-singer-sdk = "~0.46.3"
-requests = "~2.32.3"
-fs-s3fs = { version = "~1.1.1", optional = true }
-polygon-api-client = "^1.14.5"
+dependencies = [
+    "singer-sdk~=0.46.3",
+    "requests~=2.32.3",
+    "polygon-api-client>=1.14.5"
+]
 
-[tool.poetry.extras]
-s3 = ["fs-s3fs"]
+[project.optional-dependencies]
+s3 = ["fs-s3fs~=1.1.1"]
+dev = [
+    "pytest>=8.0",
+    "singer-sdk[testing]~=0.46.3"
+]
 
-[tool.poetry.scripts]
+[project.scripts]
 tap-polygon = "tap_polygon.tap:TapPolygon.cli"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.0"
-singer-sdk = { version = "~0.46.3", extras = ["testing"] }
 
 
 [tool.pytest.ini_options]
@@ -46,6 +45,6 @@ allow-star-arg-any = true
 convention = "google"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
